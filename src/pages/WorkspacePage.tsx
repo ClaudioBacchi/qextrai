@@ -5,7 +5,7 @@ import { UnsavedFieldDialog } from '../components/UnsavedFieldDialog';
 import { DocumentViewer } from '../components/document/DocumentViewer';
 import type { DocumentRegion, NormalizedRect } from '../components/document/documentGeometry';
 import { DocumentFieldsPanel, type EditorState } from '../components/fields/DocumentFieldsPanel';
-import { addDefinitionIfMissing } from '../domain/fieldCatalog';
+import { addDefinitionIfMissing, updateDefinitionFormat } from '../domain/fieldCatalog';
 import {
   commitDraftRegion,
   discardDraftRegion,
@@ -21,6 +21,7 @@ import {
 } from '../domain/documentFields';
 import type { DocumentField, FieldDefinition } from '../domain/fieldTypes';
 import type { FieldEditorSave } from '../components/fields/FieldDefinitionEditor';
+import type { FieldFormatSave } from '../components/fields/FieldFormatEditor';
 
 type WorkspacePageProps = {
   document: LocalDocument | null;
@@ -153,6 +154,14 @@ export function WorkspacePage({
     }
   };
 
+  const focusDraftEditor = () => {
+    if (!hasDraft || !draftRegion) return false;
+    setDrawingMode(null);
+    setEditor({ type: 'region', regionId: draftRegion.id });
+    onSelectRegion(draftRegion.id);
+    return true;
+  };
+
   const createRegion = (pageNumber: number, rect: NormalizedRect) => {
     const id = makeId('region');
     const region = { id, pageNumber, rect };
@@ -182,7 +191,7 @@ export function WorkspacePage({
   const saveEditor = (data: FieldEditorSave) => {
     const definitionResult = data.definitionId
       ? { catalog, definition: catalog.find((definition) => definition.id === data.definitionId)! }
-      : addDefinitionIfMissing(catalog, makeId('definition'), data.name, data.kind);
+      : addDefinitionIfMissing(catalog, makeId('definition'), data.name, data.kind, data.valueType);
 
     if (!data.definitionId) {
       onCatalogChange(definitionResult.catalog);
@@ -216,6 +225,13 @@ export function WorkspacePage({
       setDraftRegion(null);
       onSelectRegion(null);
     }
+    setEditor(null);
+  };
+
+  const saveFormat = (fieldId: string, data: FieldFormatSave) => {
+    const field = documentFields.find((item) => item.id === fieldId);
+    if (!field) return;
+    onCatalogChange(updateDefinitionFormat(catalog, field.definitionId, data.kind, data.valueType));
     setEditor(null);
   };
 
@@ -285,27 +301,31 @@ export function WorkspacePage({
           canAddRegion={canAddRegion}
           editor={editor}
           onToggleDrawing={() => {
-            if (hasDraft && draftRegion) {
-              setEditor({ type: 'region', regionId: draftRegion.id });
-              onSelectRegion(draftRegion.id);
-              return;
-            }
+            if (focusDraftEditor()) return;
             setEditor(null);
             setDrawingMode((current) => (current ? null : { type: 'new' }));
           }}
           onSelectRegion={onSelectRegion}
           onAddArea={(fieldId) => {
+            if (focusDraftEditor()) return;
             setEditor(null);
             setDrawingMode({ type: 'append', fieldId });
           }}
           onChangeField={(fieldId) => {
+            if (focusDraftEditor()) return;
             setDrawingMode(null);
             setEditor({ type: 'change', fieldId });
+          }}
+          onEditFormat={(fieldId) => {
+            if (focusDraftEditor()) return;
+            setDrawingMode(null);
+            setEditor({ type: 'format', fieldId });
           }}
           onDeleteRegion={deleteRegion}
           onDeleteField={deleteField}
           onCancelEditor={cancelEditor}
           onSaveEditor={saveEditor}
+          onSaveFormat={saveFormat}
         />
       </main>
       {pendingNavigation ? (

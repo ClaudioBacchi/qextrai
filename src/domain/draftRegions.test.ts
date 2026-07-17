@@ -28,9 +28,9 @@ describe('draftRegions', () => {
 
   it('non modifica il catalogo prima del salvataggio', () => {
     const catalog: FieldDefinition[] = [];
-    const typedName = 'Numero preventivo';
+    const typedInput = { name: 'Numero preventivo', kind: 'single' satisfies FieldKind, valueType: 'date' };
 
-    expect(typedName).toBe('Numero preventivo');
+    expect(typedInput).toMatchObject({ name: 'Numero preventivo', valueType: 'date' });
     expect(catalog).toEqual([]);
   });
 
@@ -52,10 +52,10 @@ describe('draftRegions', () => {
 
   it('continua a modificare conserva bozza e dati digitati', () => {
     const draft = region('region-draft');
-    const editorInput = { name: 'Numero preventivo', kind: 'single' satisfies FieldKind };
+    const editorInput = { name: 'Numero preventivo', kind: 'single' satisfies FieldKind, valueType: 'text' };
 
     expect(hasUnsavedDraft(draft, { type: 'region', regionId: draft.id })).toBe(true);
-    expect(editorInput).toEqual({ name: 'Numero preventivo', kind: 'single' });
+    expect(editorInput).toEqual({ name: 'Numero preventivo', kind: 'single', valueType: 'text' });
   });
 
   it('un campo salvato resta valido quando si apre Preferenze', () => {
@@ -66,6 +66,16 @@ describe('draftRegions', () => {
 
     expect(savedRegions).toEqual([draft]);
     expect(fields).toEqual([createDocumentField('field-1', 'definition-1', 'region-1')]);
+  });
+
+  it('salvataggio conserva struttura e formato', () => {
+    const result = addDefinitionIfMissing([], 'definition-1', 'Scadenze', 'list', 'date');
+
+    expect(result.definition).toMatchObject({
+      name: 'Scadenze',
+      kind: 'list',
+      valueType: 'date',
+    });
   });
 
   it('la numerazione riparte da 1 dopo eliminazione della prima bozza', () => {

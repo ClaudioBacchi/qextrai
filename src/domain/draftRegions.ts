@@ -3,6 +3,7 @@ import type { DocumentRegion } from '../components/document/documentGeometry';
 export type DraftEditorState =
   | { type: 'region'; regionId: string }
   | { type: 'change'; fieldId: string }
+  | { type: 'format'; fieldId: string }
   | null;
 
 export type DraftDiscardResult = {

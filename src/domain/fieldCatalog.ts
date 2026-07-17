@@ -1,4 +1,4 @@
-import type { FieldDefinition, FieldKind } from './fieldTypes';
+import type { FieldDefinition, FieldKind, ScalarValueType } from './fieldTypes';
 
 export function normalizeFieldName(name: string) {
   return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
@@ -21,13 +21,23 @@ export function findDefinitionByName(catalog: FieldDefinition[], name: string) {
   return catalog.find((definition) => definition.normalizedName === normalizedName) ?? null;
 }
 
-export function createFieldDefinition(id: string, name: string, kind: FieldKind): FieldDefinition {
+export function normalizeValueType(kind: FieldKind, valueType?: ScalarValueType | null): ScalarValueType | null {
+  return kind === 'table' ? null : valueType ?? 'text';
+}
+
+export function createFieldDefinition(
+  id: string,
+  name: string,
+  kind: FieldKind,
+  valueType?: ScalarValueType | null,
+): FieldDefinition {
   const cleaned = cleanFieldName(name);
   return {
     id,
     name: cleaned,
     normalizedName: normalizeFieldName(cleaned),
     kind,
+    valueType: normalizeValueType(kind, valueType),
   };
 }
 
@@ -36,13 +46,27 @@ export function addDefinitionIfMissing(
   id: string,
   name: string,
   kind: FieldKind,
+  valueType?: ScalarValueType | null,
 ) {
   const existing = findDefinitionByName(catalog, name);
   if (existing) {
     return { catalog, definition: existing, created: false };
   }
-  const definition = createFieldDefinition(id, name, kind);
+  const definition = createFieldDefinition(id, name, kind, valueType);
   return { catalog: [...catalog, definition], definition, created: true };
+}
+
+export function updateDefinitionFormat(
+  catalog: FieldDefinition[],
+  definitionId: string,
+  kind: FieldKind,
+  valueType?: ScalarValueType | null,
+) {
+  return catalog.map((definition) =>
+    definition.id === definitionId
+      ? { ...definition, kind, valueType: normalizeValueType(kind, valueType) }
+      : definition,
+  );
 }
 
 export function sortDefinitions(catalog: FieldDefinition[]) {
