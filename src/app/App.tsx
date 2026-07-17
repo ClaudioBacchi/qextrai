@@ -4,17 +4,21 @@ import { HomePage } from '../pages/HomePage';
 import { PreferencesPage } from '../pages/PreferencesPage';
 import { WorkspacePage } from '../pages/WorkspacePage';
 import type { DocumentRegion } from '../components/document/documentGeometry';
+import type { DocumentField, FieldDefinition } from '../domain/fieldTypes';
 
 export type AppView = 'home' | 'workspace' | 'preferences';
 
 export function App() {
   const [view, setView] = useState<AppView>('home');
   const [documentFile, setDocumentFile] = useState<LocalDocument | null>(null);
+  const [fieldCatalog, setFieldCatalog] = useState<FieldDefinition[]>([]);
+  const [documentFields, setDocumentFields] = useState<DocumentField[]>([]);
   const [regions, setRegions] = useState<DocumentRegion[]>([]);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
 
   const openWorkspace = (file: File) => {
     setDocumentFile(createLocalDocument(file));
+    setDocumentFields([]);
     setRegions([]);
     setSelectedRegionId(null);
     setView('workspace');
@@ -22,6 +26,7 @@ export function App() {
 
   const closeDocument = () => {
     setDocumentFile(null);
+    setDocumentFields([]);
     setRegions([]);
     setSelectedRegionId(null);
     setView('home');
@@ -29,6 +34,7 @@ export function App() {
 
   const replaceDocument = (file: File) => {
     setDocumentFile(createLocalDocument(file));
+    setDocumentFields([]);
     setRegions([]);
     setSelectedRegionId(null);
   };
@@ -44,8 +50,12 @@ export function App() {
       {view === 'workspace' && (
         <WorkspacePage
           document={documentFile}
+          catalog={fieldCatalog}
+          documentFields={documentFields}
           regions={regions}
           selectedRegionId={selectedRegionId}
+          onCatalogChange={setFieldCatalog}
+          onDocumentFieldsChange={setDocumentFields}
           onRegionsChange={setRegions}
           onSelectRegion={setSelectedRegionId}
           onReplaceDocument={replaceDocument}

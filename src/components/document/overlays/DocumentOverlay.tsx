@@ -73,7 +73,7 @@ export function DocumentOverlay({
   };
 
   const startDraw = (event: PointerEvent<HTMLDivElement>) => {
-    if (!drawingMode || event.target !== event.currentTarget) return;
+    if (!drawingMode) return;
     const start = pointFromEvent(event);
     if (!start) return;
     event.preventDefault();
@@ -97,6 +97,7 @@ export function DocumentOverlay({
     handle: ResizeHandlePosition,
     event: PointerEvent<HTMLButtonElement>,
   ) => {
+    if (drawingMode) return;
     const point = pointFromEvent(event);
     if (!point) return;
     event.preventDefault();

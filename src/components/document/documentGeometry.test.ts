@@ -63,6 +63,26 @@ describe('documentGeometry', () => {
     expect(resized.x).toBe(0.2);
   });
 
+  it('ridimensiona da quattro direzioni senza uscire dai bordi', () => {
+    const rect: NormalizedRect = { x: 0.25, y: 0.25, width: 0.35, height: 0.35 };
+    expect(resizeRect(rect, 'n', { x: 0.25, y: 0.1 }, page).y).toBe(0.1);
+    expect(resizeRect(rect, 's', { x: 0.25, y: 0.8 }, page).height).toBeCloseTo(0.55);
+    expect(resizeRect(rect, 'w', { x: 0.05, y: 0.25 }, page).x).toBe(0.05);
+    expect(resizeRect(rect, 'e', { x: 0.95, y: 0.25 }, page).width).toBeCloseTo(0.7);
+  });
+
+  it('mantiene tutti i valori tra 0 e 1', () => {
+    const rect = resizeRect(
+      { x: 0.8, y: 0.8, width: 0.15, height: 0.15 },
+      'se',
+      { x: 4, y: 4 },
+      page,
+    );
+    expect(Object.values(rect).every((value) => value >= 0 && value <= 1)).toBe(true);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(1);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(1);
+  });
+
   it('converte tra coordinate CSS e normalizzate', () => {
     const point = cssPointToNormalized({ x: 50, y: 25 }, page);
     expect(point).toEqual({ x: 0.25, y: 0.25 });

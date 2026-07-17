@@ -1,14 +1,35 @@
-import { CheckCircle2, Crosshair, FilePlus2, ScanSearch, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LocalDocument } from '../app/documentTypes';
 import { AppHeader } from '../components/AppHeader';
+import { UnsavedFieldDialog } from '../components/UnsavedFieldDialog';
 import { DocumentViewer } from '../components/document/DocumentViewer';
 import type { DocumentRegion, NormalizedRect } from '../components/document/documentGeometry';
+import { DocumentFieldsPanel, type EditorState } from '../components/fields/DocumentFieldsPanel';
+import { addDefinitionIfMissing } from '../domain/fieldCatalog';
+import {
+  commitDraftRegion,
+  discardDraftRegion,
+  displayRegions,
+  hasUnsavedDraft,
+} from '../domain/draftRegions';
+import {
+  addRegionToField,
+  associateRegionToDefinition,
+  changeFieldDefinition,
+  removeField,
+  removeRegionFromFields,
+} from '../domain/documentFields';
+import type { DocumentField, FieldDefinition } from '../domain/fieldTypes';
+import type { FieldEditorSave } from '../components/fields/FieldDefinitionEditor';
 
 type WorkspacePageProps = {
   document: LocalDocument | null;
+  catalog: FieldDefinition[];
+  documentFields: DocumentField[];
   regions: DocumentRegion[];
   selectedRegionId: string | null;
+  onCatalogChange: (catalog: FieldDefinition[]) => void;
+  onDocumentFieldsChange: (fields: DocumentField[]) => void;
   onRegionsChange: (regions: DocumentRegion[]) => void;
   onSelectRegion: (id: string | null) => void;
   onReplaceDocument: (file: File) => void;
@@ -16,13 +37,19 @@ type WorkspacePageProps = {
   onOpenPreferences: () => void;
 };
 
+type DrawingMode = { type: 'new' } | { type: 'append'; fieldId: string } | null;
+type PendingNavigation = 'preferences' | 'back' | 'new-document';
+
 const acceptedTypes = '.pdf,.jpg,.jpeg,.png';
-const unavailableTitle = 'Funzione non ancora disponibile';
 
 export function WorkspacePage({
   document,
+  catalog,
+  documentFields,
   regions,
   selectedRegionId,
+  onCatalogChange,
+  onDocumentFieldsChange,
   onRegionsChange,
   onSelectRegion,
   onReplaceDocument,
@@ -30,66 +57,204 @@ export function WorkspacePage({
   onOpenPreferences,
 }: WorkspacePageProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [drawingMode, setDrawingMode] = useState(false);
+  const [drawingMode, setDrawingMode] = useState<DrawingMode>(null);
+  const [editor, setEditor] = useState<EditorState>(null);
+  const [draftRegion, setDraftRegion] = useState<DocumentRegion | null>(null);
+  const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation | null>(null);
   const canAddRegion = document?.viewType === 'pdf' || document?.viewType === 'image';
-  const selectedRegion = regions.find((region) => region.id === selectedRegionId) ?? null;
+  const visibleRegions = useMemo(() => displayRegions(regions, draftRegion), [regions, draftRegion]);
+  const hasDraft = hasUnsavedDraft(draftRegion, editor);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && drawingMode) {
-        event.preventDefault();
-        setDrawingMode(false);
-        return;
+      if (event.key === 'Escape') {
+        if (pendingNavigation) {
+          event.preventDefault();
+          continueEditingDraft();
+          return;
+        }
+        if (editor?.type === 'region') {
+          event.preventDefault();
+          cancelEditor();
+          return;
+        }
+        if (drawingMode) {
+          event.preventDefault();
+          setDrawingMode(null);
+          return;
+        }
       }
 
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedRegionId) {
         if (event.key === 'Backspace' && isEditingText(event.target)) return;
         event.preventDefault();
-        deleteSelectedRegion();
+        deleteRegion(selectedRegionId);
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [drawingMode, selectedRegionId, regions]);
+  }, [drawingMode, editor, pendingNavigation, selectedRegionId, regions, documentFields, draftRegion]);
 
   const replaceDocument = (file?: File) => {
     if (file) {
       onReplaceDocument(file);
-      setDrawingMode(false);
+      setDrawingMode(null);
+      setEditor(null);
+      setDraftRegion(null);
     }
     if (inputRef.current) {
       inputRef.current.value = '';
     }
   };
 
+  const requestNavigation = (target: PendingNavigation) => {
+    if (hasDraft) {
+      setPendingNavigation(target);
+      return;
+    }
+
+    if (drawingMode?.type === 'new') {
+      setDrawingMode(null);
+    }
+
+    completeNavigation(target);
+  };
+
+  const completeNavigation = (target: PendingNavigation) => {
+    if (target === 'preferences') {
+      onOpenPreferences();
+      return;
+    }
+
+    if (target === 'back') {
+      onBack();
+      return;
+    }
+
+    inputRef.current?.click();
+  };
+
+  const continueEditingDraft = () => {
+    setPendingNavigation(null);
+  };
+
+  const discardDraftAndContinue = () => {
+    const discarded = discardDraftRegion();
+    setDraftRegion(discarded.draftRegion);
+    setEditor(discarded.editor);
+    onSelectRegion(discarded.selectedRegionId);
+    setDrawingMode(null);
+
+    const target = pendingNavigation;
+    setPendingNavigation(null);
+    if (target) {
+      completeNavigation(target);
+    }
+  };
+
   const createRegion = (pageNumber: number, rect: NormalizedRect) => {
-    const id = makeRegionId();
-    onRegionsChange([...regions, { id, pageNumber, rect }]);
+    const id = makeId('region');
+    const region = { id, pageNumber, rect };
+
+    if (drawingMode?.type === 'append') {
+      onRegionsChange([...regions, region]);
+      onDocumentFieldsChange(addRegionToField(documentFields, drawingMode.fieldId, id));
+      onSelectRegion(id);
+      setDrawingMode(null);
+      return;
+    }
+
+    setDraftRegion(region);
     onSelectRegion(id);
+    setDrawingMode(null);
+    setEditor({ type: 'region', regionId: id });
   };
 
   const changeRegion = (id: string, rect: NormalizedRect) => {
+    if (draftRegion?.id === id) {
+      setDraftRegion({ ...draftRegion, rect });
+      return;
+    }
     onRegionsChange(regions.map((region) => (region.id === id ? { ...region, rect } : region)));
   };
 
-  const deleteSelectedRegion = () => {
-    if (!selectedRegionId) return;
-    onRegionsChange(regions.filter((region) => region.id !== selectedRegionId));
-    onSelectRegion(null);
+  const saveEditor = (data: FieldEditorSave) => {
+    const definitionResult = data.definitionId
+      ? { catalog, definition: catalog.find((definition) => definition.id === data.definitionId)! }
+      : addDefinitionIfMissing(catalog, makeId('definition'), data.name, data.kind);
+
+    if (!data.definitionId) {
+      onCatalogChange(definitionResult.catalog);
+    }
+
+    if (editor?.type === 'region') {
+      const committedRegions = commitDraftRegion(regions, draftRegion);
+      onRegionsChange(committedRegions);
+      onDocumentFieldsChange(
+        associateRegionToDefinition(
+          documentFields,
+          makeId('field'),
+          definitionResult.definition.id,
+          editor.regionId,
+        ),
+      );
+      onSelectRegion(editor.regionId);
+      setDraftRegion(null);
+    }
+
+    if (editor?.type === 'change') {
+      onDocumentFieldsChange(changeFieldDefinition(documentFields, editor.fieldId, definitionResult.definition.id));
+    }
+
+    setEditor(null);
   };
 
-  const fieldCountText =
-    regions.length === 0 ? '0 campi' : regions.length === 1 ? '1 campo' : `${regions.length} campi`;
+  const cancelEditor = () => {
+    if (editor?.type === 'region') {
+      onDocumentFieldsChange(removeRegionFromFields(documentFields, editor.regionId));
+      setDraftRegion(null);
+      onSelectRegion(null);
+    }
+    setEditor(null);
+  };
+
+  const deleteRegion = (regionId: string) => {
+    if (draftRegion?.id === regionId) {
+      setDraftRegion(null);
+      if (selectedRegionId === regionId) onSelectRegion(null);
+      if (editor?.type === 'region' && editor.regionId === regionId) setEditor(null);
+      return;
+    }
+
+    onRegionsChange(regions.filter((region) => region.id !== regionId));
+    onDocumentFieldsChange(removeRegionFromFields(documentFields, regionId));
+    if (selectedRegionId === regionId) onSelectRegion(null);
+    if (editor?.type === 'region' && editor.regionId === regionId) setEditor(null);
+  };
+
+  const deleteField = (fieldId: string) => {
+    const field = documentFields.find((item) => item.id === fieldId);
+    if (!field) return;
+    onRegionsChange(regions.filter((region) => !field.regionIds.includes(region.id)));
+    onDocumentFieldsChange(removeField(documentFields, fieldId));
+    if (selectedRegionId && field.regionIds.includes(selectedRegionId)) onSelectRegion(null);
+    if (editor?.type === 'change' && editor.fieldId === fieldId) setEditor(null);
+  };
+
+  const drawingMessage =
+    drawingMode?.type === 'append'
+      ? `Trascina sul documento per aggiungere un'altra area a «${labelForField(drawingMode.fieldId, documentFields, catalog)}»`
+      : 'Trascina sul documento per delimitare il campo';
 
   return (
     <>
       <AppHeader
         mode="workspace"
         documentName={document?.name ?? null}
-        onBack={onBack}
-        onNewDocument={() => inputRef.current?.click()}
-        onOpenPreferences={onOpenPreferences}
+        onBack={() => requestNavigation('back')}
+        onNewDocument={() => requestNavigation('new-document')}
+        onOpenPreferences={() => requestNavigation('preferences')}
       />
       <input
         ref={inputRef}
@@ -102,104 +267,67 @@ export function WorkspacePage({
       <main className="workspace" aria-label="Area di lavoro documento">
         <DocumentViewer
           document={document}
-          regions={regions}
+          regions={visibleRegions}
           selectedRegionId={selectedRegionId}
-          drawingMode={drawingMode}
+          drawingMode={Boolean(drawingMode)}
           onCreateRegion={createRegion}
           onSelectRegion={onSelectRegion}
           onChangeRegion={changeRegion}
-          onFinishDrawing={() => setDrawingMode(false)}
+          onFinishDrawing={() => setDrawingMode(null)}
         />
-
-        <section className="fields-pane" aria-label="Campi del documento">
-          <div className="fields-pane__header">
-            <div>
-              <h1>Campi del documento</h1>
-              <p>Controlla i valori proposti e verifica la loro origine.</p>
-            </div>
-            <div className="fields-actions">
-              <button className="button button--primary" type="button" disabled title={unavailableTitle}>
-                <ScanSearch aria-hidden="true" size={18} />
-                Suggerisci campi
-              </button>
-              <button
-                className={`button button--secondary${drawingMode ? ' button--active' : ''}`}
-                type="button"
-                disabled={!canAddRegion}
-                title={canAddRegion ? undefined : 'Apri un documento prima di aggiungere un campo'}
-                aria-pressed={drawingMode}
-                onClick={() => setDrawingMode((current) => !current)}
-              >
-                <FilePlus2 aria-hidden="true" size={18} />
-                {drawingMode ? 'Annulla disegno' : 'Aggiungi campo'}
-              </button>
-            </div>
-          </div>
-
-          <div className="fields-list">
-            {drawingMode ? (
-              <div className="drawing-callout" role="status">
-                <Crosshair aria-hidden="true" size={22} />
-                <strong>Disegna un box sul documento</strong>
-                <span>Tieni premuto il tasto sinistro e trascina intorno al dato. Un click singolo non crea il box. Premi Esc per annullare.</span>
-              </div>
-            ) : null}
-
-            {regions.length === 0 ? (
-              <div className="empty-state">
-                <Crosshair aria-hidden="true" size={44} />
-                <h2>Nessun campo ancora definito</h2>
-                <p>Usa Aggiungi campo, poi tieni premuto e trascina sul documento per disegnare il box.</p>
-              </div>
-            ) : (
-              <div className="region-list" aria-label="Campi da definire">
-                {regions.map((region, index) => (
-                  <button
-                    className={`region-list-item${region.id === selectedRegionId ? ' region-list-item--selected' : ''}`}
-                    type="button"
-                    key={region.id}
-                    onClick={() => onSelectRegion(region.id)}
-                  >
-                    <span className="region-list-item__number">{index + 1}</span>
-                    <span>
-                      <strong>Campo {index + 1} da definire</strong>
-                      <small>Pagina {region.pageNumber} - Da definire</small>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {selectedRegion ? (
-              <aside className="selected-region-panel" aria-label="Campo selezionato">
-                <h2>Campo {regions.findIndex((region) => region.id === selectedRegion.id) + 1} da definire</h2>
-                <p>Pagina {selectedRegion.pageNumber}</p>
-                <p>Nel prossimo passaggio assocerai a questa zona il nome e il tipo del campo.</p>
-                <button className="button button--danger" type="button" onClick={deleteSelectedRegion}>
-                  <Trash2 aria-hidden="true" size={18} />
-                  Elimina selezione
-                </button>
-              </aside>
-            ) : null}
-          </div>
-
-          <footer className="fields-footer">
-            <span>{fieldCountText}</span>
-            <button className="button button--primary" type="button" disabled title={unavailableTitle}>
-              <CheckCircle2 aria-hidden="true" size={18} />
-              Conferma documento
-            </button>
-          </footer>
-        </section>
+        <DocumentFieldsPanel
+          catalog={catalog}
+          fields={documentFields}
+          regions={regions}
+          selectedRegionId={selectedRegionId}
+          drawingMode={Boolean(drawingMode)}
+          drawingMessage={drawingMessage}
+          canAddRegion={canAddRegion}
+          editor={editor}
+          onToggleDrawing={() => {
+            if (hasDraft && draftRegion) {
+              setEditor({ type: 'region', regionId: draftRegion.id });
+              onSelectRegion(draftRegion.id);
+              return;
+            }
+            setEditor(null);
+            setDrawingMode((current) => (current ? null : { type: 'new' }));
+          }}
+          onSelectRegion={onSelectRegion}
+          onAddArea={(fieldId) => {
+            setEditor(null);
+            setDrawingMode({ type: 'append', fieldId });
+          }}
+          onChangeField={(fieldId) => {
+            setDrawingMode(null);
+            setEditor({ type: 'change', fieldId });
+          }}
+          onDeleteRegion={deleteRegion}
+          onDeleteField={deleteField}
+          onCancelEditor={cancelEditor}
+          onSaveEditor={saveEditor}
+        />
       </main>
+      {pendingNavigation ? (
+        <UnsavedFieldDialog
+          onContinue={continueEditingDraft}
+          onDiscard={discardDraftAndContinue}
+        />
+      ) : null}
     </>
   );
 }
 
-function makeRegionId() {
+function makeId(prefix: string) {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
-    : `region-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function labelForField(fieldId: string, fields: DocumentField[], catalog: FieldDefinition[]) {
+  const field = fields.find((item) => item.id === fieldId);
+  const definition = catalog.find((item) => item.id === field?.definitionId);
+  return definition?.name ?? 'campo';
 }
 
 function isEditingText(target: EventTarget | null) {

@@ -430,6 +430,9 @@
 .document-overlay--drawing {
   cursor: crosshair;
   user-select: none;
+  outline: 2px dashed rgba(217, 154, 0, 0.42);
+  outline-offset: -6px;
+  background: rgba(255, 216, 88, 0.04);
 }
 
 .document-region-box,
@@ -656,6 +659,176 @@
   line-height: 1.45;
 }
 
+.field-editor,
+.document-field-card {
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: #fff;
+}
+
+.field-editor {
+  border-color: rgba(36, 69, 159, 0.34);
+  box-shadow: 0 12px 28px rgba(36, 69, 159, 0.1);
+}
+
+.field-editor h2,
+.document-field-card h2 {
+  margin: 0 0 6px;
+  font-size: 1.12rem;
+}
+
+.field-editor p,
+.document-field-card p {
+  margin: 0 0 12px;
+  color: var(--color-muted);
+  line-height: 1.45;
+}
+
+.field-picker-results {
+  display: grid;
+  gap: 8px;
+  margin: -6px 0 14px;
+}
+
+.field-picker-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  color: var(--color-ink);
+  text-align: left;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: #f8fbff;
+}
+
+.field-picker-option--selected {
+  border-color: rgba(36, 69, 159, 0.56);
+  background: #edf3ff;
+}
+
+.field-picker-option small,
+.field-picker-empty,
+.field-picker-create {
+  color: var(--color-muted);
+  font-weight: 800;
+}
+
+.field-picker-empty,
+.field-picker-create {
+  margin: 0;
+  padding: 8px 2px;
+}
+
+.field-kind-selector {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.field-kind-option {
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px;
+  color: var(--color-ink);
+  text-align: left;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: #f8fbff;
+}
+
+.field-kind-option span {
+  color: var(--color-muted);
+  line-height: 1.35;
+}
+
+.field-kind-option--active {
+  border-color: rgba(36, 69, 159, 0.56);
+  background: #edf3ff;
+}
+
+.field-editor-note {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  color: var(--color-primary-strong);
+  border: 1px solid rgba(36, 69, 159, 0.18);
+  border-radius: var(--radius-control);
+  background: #f1f6ff;
+}
+
+.field-editor-error {
+  color: #8f1f2d !important;
+  font-weight: 900;
+}
+
+.field-editor-actions,
+.document-field-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.document-fields-list {
+  display: grid;
+  gap: 12px;
+}
+
+.document-field-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.field-kind-badge,
+.field-value-missing {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 9px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  border-radius: var(--radius-control);
+}
+
+.field-kind-badge {
+  color: var(--color-primary-strong);
+  background: #edf3ff;
+}
+
+.field-value-missing {
+  color: #8a6000;
+  white-space: nowrap;
+  background: #fff6d8;
+}
+
+.field-area-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.field-area-chip {
+  min-height: 32px;
+  padding: 6px 10px;
+  color: var(--color-primary-strong);
+  font-weight: 900;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: #f8fbff;
+}
+
+.field-area-chip--selected {
+  color: #fff;
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+}
+
 .empty-state {
   min-height: 360px;
   display: grid;
@@ -783,6 +956,46 @@
   border-radius: var(--radius-control);
   background: var(--color-primary-strong);
   box-shadow: var(--shadow-soft);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(12, 20, 42, 0.42);
+  backdrop-filter: blur(4px);
+}
+
+.confirm-dialog {
+  width: min(460px, 100%);
+  padding: 22px;
+  border: 1px solid rgba(220, 229, 246, 0.95);
+  border-radius: var(--radius-card);
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(12, 20, 42, 0.24);
+}
+
+.confirm-dialog h2 {
+  margin: 0 0 10px;
+  color: var(--color-primary-strong);
+  font-size: 1.34rem;
+}
+
+.confirm-dialog p {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.55;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
 }
 
 .preferences-page {
