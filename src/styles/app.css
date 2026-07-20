@@ -1290,6 +1290,103 @@
   background: transparent;
 }
 
+.input-like select {
+  width: 100%;
+  min-width: 0;
+  color: var(--color-ink);
+  font-weight: 800;
+  border: 0;
+  background: transparent;
+}
+
+.input-like input:disabled,
+.input-like select:disabled {
+  color: #7a8598;
+}
+
+.preference-section__description {
+  margin: -8px 0 16px;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.preference-section--wide {
+  grid-column: span 2;
+}
+
+.database-status {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 11px;
+  color: var(--color-primary-strong);
+  font-weight: 900;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: #f6f9ff;
+}
+
+.database-status--success,
+.database-status--saved {
+  color: var(--color-green);
+  border-color: rgba(19, 122, 86, 0.18);
+  background: var(--color-green-bg);
+}
+
+.database-status--failed {
+  color: #8f1f2d;
+  border-color: rgba(236, 27, 46, 0.22);
+  background: #fff6f7;
+}
+
+.database-detail,
+.database-warning {
+  margin: 0 0 14px;
+  color: var(--color-muted);
+  line-height: 1.45;
+}
+
+.database-warning {
+  padding: 10px 12px;
+  color: #8a6000;
+  border: 1px solid rgba(217, 154, 0, 0.24);
+  border-radius: var(--radius-control);
+  background: #fff8de;
+}
+
+.database-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 14px;
+}
+
+.form-field small {
+  color: var(--color-muted);
+  font-weight: 800;
+}
+
+.advanced-options {
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.advanced-options summary {
+  margin-bottom: 12px;
+  color: var(--color-primary-strong);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.database-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
 .toggle-row {
   display: flex;
   align-items: center;
@@ -1382,6 +1479,14 @@
   }
 
   .preferences-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .preference-section--wide {
+    grid-column: auto;
+  }
+
+  .database-form-grid {
     grid-template-columns: 1fr;
   }
 

@@ -1,6 +1,7 @@
-import { ArrowLeft, CheckCircle2, FolderOpen, KeyRound, Languages, PlugZap, Save, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Languages, Save, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { AppHeader } from '../components/AppHeader';
+import { DatabaseSettingsSection } from '../components/DatabaseSettingsSection';
 
 type PreferencesPageProps = {
   onBack: () => void;
@@ -40,15 +41,7 @@ export function PreferencesPage({ onBack }: PreferencesPageProps) {
               </label>
             </PreferenceSection>
 
-            <PreferenceSection title="Analisi documenti" icon={<PlugZap aria-hidden="true" size={21} />}>
-              <Field label="Servizio di analisi" value="Configurazione locale" />
-              <Field label="Modello" value="Profilo predefinito" />
-              <Field label="Chiave API" icon={<KeyRound aria-hidden="true" size={17} />} value="•••• •••• •••• 4821" />
-              <button className="button button--primary" type="button" onClick={() => setMessage('Configurazione verificata nella simulazione')}>
-                <CheckCircle2 aria-hidden="true" size={18} />
-                Verifica configurazione
-              </button>
-            </PreferenceSection>
+            <DatabaseSettingsSection />
 
             <PreferenceSection title="Esportazione" icon={<Save aria-hidden="true" size={21} />}>
               <Field label="Formato predefinito" value="Excel" />
