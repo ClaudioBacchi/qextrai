@@ -7,6 +7,9 @@ pub fn run() {
             database::commands::get_database_settings,
             database::commands::save_database_settings,
             database::commands::test_database_connection,
+            database::commands::list_field_definitions,
+            database::commands::create_field_definition,
+            database::commands::update_field_definition_format,
         ])
         .run(tauri::generate_context!())
         .expect("error while running qExtrai");

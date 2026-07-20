@@ -13,6 +13,7 @@ import { isDraftDefinitionMode, shouldShowDocumentFieldList, shouldShowDocumentT
 import { DocumentFieldCard } from './DocumentFieldCard';
 import { FieldDefinitionEditor, type FieldEditorSave } from './FieldDefinitionEditor';
 import { FieldFormatEditor, type FieldFormatSave } from './FieldFormatEditor';
+import type { FieldCatalogStatus } from '../../domain/fieldCatalogRepository';
 
 type EditorState =
   | { type: 'region'; regionId: string }
@@ -28,6 +29,9 @@ type DocumentFieldsPanelProps = {
   drawingMode: boolean;
   drawingMessage: string;
   canAddRegion: boolean;
+  catalogStatus: FieldCatalogStatus;
+  catalogMessage: string;
+  editorError: string;
   editor: EditorState;
   onToggleDrawing: () => void;
   onSelectRegion: (id: string) => void;
@@ -57,6 +61,9 @@ export function DocumentFieldsPanel({
   drawingMode,
   drawingMessage,
   canAddRegion,
+  catalogStatus,
+  catalogMessage,
+  editorError,
   editor,
   onToggleDrawing,
   onSelectRegion,
@@ -95,6 +102,12 @@ export function DocumentFieldsPanel({
   const isDefiningDraft = isDraftDefinitionMode(editor);
   const showDocumentTools = shouldShowDocumentTools(editor);
   const showDocumentFieldList = shouldShowDocumentFieldList(editor);
+  const catalogAllowsEditing = catalogStatus === 'ready' || catalogStatus === 'temporary';
+  const addFieldTitle = !canAddRegion
+    ? 'Apri un documento prima di aggiungere un campo'
+    : !catalogAllowsEditing
+      ? 'Catalogo condiviso non disponibile'
+      : undefined;
 
   const toggleExpanded = (fieldId: string) => {
     const item = listItems.find((current) => current.field.id === fieldId);
@@ -127,8 +140,8 @@ export function DocumentFieldsPanel({
             <button
               className={`button button--secondary${drawingMode ? ' button--active' : ''}`}
               type="button"
-              disabled={!canAddRegion || isDefiningDraft}
-              title={canAddRegion ? undefined : 'Apri un documento prima di aggiungere un campo'}
+              disabled={!canAddRegion || isDefiningDraft || !catalogAllowsEditing}
+              title={addFieldTitle}
               aria-pressed={drawingMode}
               onClick={onToggleDrawing}
             >
@@ -173,6 +186,13 @@ export function DocumentFieldsPanel({
             <span>Premi Esc per annullare. Tieni premuto e trascina sulla pagina.</span>
           </div>
         ) : null}
+        {catalogStatus !== 'ready' && catalogStatus !== 'temporary' ? (
+          <div className="field-editor-note" role="status">
+            {catalogStatus === 'loading' || catalogStatus === 'refreshing'
+              ? 'Caricamento catalogo...'
+              : catalogMessage || 'Catalogo non disponibile.'}
+          </div>
+        ) : null}
         {editor && editor.type !== 'format' ? (
           <FieldDefinitionEditor
             catalog={catalog}
@@ -180,6 +200,7 @@ export function DocumentFieldsPanel({
               .filter((field) => editor.type !== 'change' || field.id !== editor.fieldId)
               .map((field) => field.definitionId)}
             submitLabel={editor.type === 'change' ? 'Salva associazione' : undefined}
+            errorMessage={editorError}
             onCancel={onCancelEditor}
             onSave={onSaveEditor}
           />

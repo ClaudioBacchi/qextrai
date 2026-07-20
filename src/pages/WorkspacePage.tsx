@@ -5,7 +5,7 @@ import { UnsavedFieldDialog } from '../components/UnsavedFieldDialog';
 import { DocumentViewer } from '../components/document/DocumentViewer';
 import type { DocumentRegion, NormalizedRect } from '../components/document/documentGeometry';
 import { DocumentFieldsPanel, type EditorState } from '../components/fields/DocumentFieldsPanel';
-import { addDefinitionIfMissing, updateDefinitionFormat } from '../domain/fieldCatalog';
+import { findDefinitionByName } from '../domain/fieldCatalog';
 import {
   commitDraftRegion,
   discardDraftRegion,
@@ -20,6 +20,11 @@ import {
   removeRegionFromFields,
 } from '../domain/documentFields';
 import type { DocumentField, FieldDefinition } from '../domain/fieldTypes';
+import {
+  FieldCatalogError,
+  type FieldCatalogRepository,
+  type FieldCatalogStatus,
+} from '../domain/fieldCatalogRepository';
 import type { FieldEditorSave } from '../components/fields/FieldDefinitionEditor';
 import type { FieldFormatSave } from '../components/fields/FieldFormatEditor';
 
@@ -30,6 +35,10 @@ type WorkspacePageProps = {
   regions: DocumentRegion[];
   selectedRegionId: string | null;
   onCatalogChange: (catalog: FieldDefinition[]) => void;
+  catalogStatus: FieldCatalogStatus;
+  catalogMessage: string;
+  catalogRepository: FieldCatalogRepository;
+  onRefreshCatalog: () => Promise<void>;
   onDocumentFieldsChange: (fields: DocumentField[]) => void;
   onRegionsChange: (regions: DocumentRegion[]) => void;
   onSelectRegion: (id: string | null) => void;
@@ -50,6 +59,10 @@ export function WorkspacePage({
   regions,
   selectedRegionId,
   onCatalogChange,
+  catalogStatus,
+  catalogMessage,
+  catalogRepository,
+  onRefreshCatalog,
   onDocumentFieldsChange,
   onRegionsChange,
   onSelectRegion,
@@ -62,6 +75,7 @@ export function WorkspacePage({
   const [editor, setEditor] = useState<EditorState>(null);
   const [draftRegion, setDraftRegion] = useState<DocumentRegion | null>(null);
   const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation | null>(null);
+  const [editorError, setEditorError] = useState('');
   const canAddRegion = document?.viewType === 'pdf' || document?.viewType === 'image';
   const visibleRegions = useMemo(() => displayRegions(regions, draftRegion), [regions, draftRegion]);
   const hasDraft = hasUnsavedDraft(draftRegion, editor);
@@ -175,6 +189,7 @@ export function WorkspacePage({
     }
 
     setDraftRegion(region);
+    void onRefreshCatalog();
     onSelectRegion(id);
     setDrawingMode(null);
     setEditor({ type: 'region', regionId: id });
@@ -188,13 +203,26 @@ export function WorkspacePage({
     onRegionsChange(regions.map((region) => (region.id === id ? { ...region, rect } : region)));
   };
 
-  const saveEditor = (data: FieldEditorSave) => {
-    const definitionResult = data.definitionId
-      ? { catalog, definition: catalog.find((definition) => definition.id === data.definitionId)! }
-      : addDefinitionIfMissing(catalog, makeId('definition'), data.name, data.kind, data.valueType);
+  const saveEditor = async (data: FieldEditorSave) => {
+    setEditorError('');
+    let definition: FieldDefinition | undefined = data.definitionId
+      ? catalog.find((item) => item.id === data.definitionId)
+      : findDefinitionByName(catalog, data.name) ?? undefined;
 
-    if (!data.definitionId) {
-      onCatalogChange(definitionResult.catalog);
+    if (!definition) {
+      try {
+        definition = await catalogRepository.create({
+          id: makeId('definition'),
+          name: data.name,
+          kind: data.kind,
+          valueType: data.valueType,
+        });
+        await onRefreshCatalog();
+      } catch (error) {
+        await onRefreshCatalog();
+        setEditorError(messageForCatalogError(error, 'Impossibile salvare il campo nel catalogo condiviso.'));
+        return;
+      }
     }
 
     if (editor?.type === 'region') {
@@ -204,7 +232,7 @@ export function WorkspacePage({
         associateRegionToDefinition(
           documentFields,
           makeId('field'),
-          definitionResult.definition.id,
+          definition.id,
           editor.regionId,
         ),
       );
@@ -213,7 +241,7 @@ export function WorkspacePage({
     }
 
     if (editor?.type === 'change') {
-      onDocumentFieldsChange(changeFieldDefinition(documentFields, editor.fieldId, definitionResult.definition.id));
+      onDocumentFieldsChange(changeFieldDefinition(documentFields, editor.fieldId, definition.id));
     }
 
     setEditor(null);
@@ -225,14 +253,30 @@ export function WorkspacePage({
       setDraftRegion(null);
       onSelectRegion(null);
     }
+    setEditorError('');
     setEditor(null);
   };
 
-  const saveFormat = (fieldId: string, data: FieldFormatSave) => {
+  const saveFormat = async (fieldId: string, data: FieldFormatSave) => {
     const field = documentFields.find((item) => item.id === fieldId);
     if (!field) return;
-    onCatalogChange(updateDefinitionFormat(catalog, field.definitionId, data.kind, data.valueType));
-    setEditor(null);
+    const definition = catalog.find((item) => item.id === field.definitionId);
+    if (!definition) return;
+    setEditorError('');
+    try {
+      const updated = await catalogRepository.updateFormat({
+        id: definition.id,
+        expectedRevision: definition.revision,
+        kind: data.kind,
+        valueType: data.valueType,
+      });
+      onCatalogChange(catalog.map((item) => (item.id === updated.id ? updated : item)));
+      await onRefreshCatalog();
+      setEditor(null);
+    } catch (error) {
+      await onRefreshCatalog();
+      setEditorError(messageForCatalogError(error, 'Impossibile aggiornare il formato del campo.'));
+    }
   };
 
   const deleteRegion = (regionId: string) => {
@@ -299,6 +343,9 @@ export function WorkspacePage({
           drawingMode={Boolean(drawingMode)}
           drawingMessage={drawingMessage}
           canAddRegion={canAddRegion}
+          catalogStatus={catalogStatus}
+          catalogMessage={catalogMessage}
+          editorError={editorError}
           editor={editor}
           onToggleDrawing={() => {
             if (focusDraftEditor()) return;
@@ -354,4 +401,9 @@ function isEditingText(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   const tagName = target.tagName.toLowerCase();
   return tagName === 'input' || tagName === 'textarea' || target.isContentEditable;
+}
+
+function messageForCatalogError(error: unknown, fallback: string) {
+  if (error instanceof FieldCatalogError) return error.message;
+  return fallback;
 }

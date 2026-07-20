@@ -14,6 +14,7 @@ export type FieldDefinition = {
   normalizedName: string;
   kind: FieldKind;
   valueType: ScalarValueType | null;
+  revision: number;
 };
 
 export type DocumentField = {

@@ -1328,6 +1328,37 @@
   background: #f6f9ff;
 }
 
+.catalog-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  color: var(--color-primary-strong);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: #f8fbff;
+}
+
+.catalog-status strong {
+  white-space: nowrap;
+}
+
+.catalog-status--ready,
+.catalog-status--temporary {
+  color: var(--color-green);
+  border-color: rgba(19, 122, 86, 0.18);
+  background: var(--color-green-bg);
+}
+
+.catalog-status--unavailable,
+.catalog-status--stale {
+  color: #8a6000;
+  border-color: rgba(217, 154, 0, 0.24);
+  background: #fff8de;
+}
+
 .database-status--success,
 .database-status--saved {
   color: var(--color-green);

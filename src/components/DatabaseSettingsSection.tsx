@@ -16,10 +16,17 @@ import {
   testDatabaseConnection,
 } from '../services/databaseSettingsClient';
 import { isTauriRuntime } from '../services/tauriRuntime';
+import type { FieldCatalogStatus } from '../domain/fieldCatalogRepository';
 
 const sslModes: SslMode[] = ['prefer', 'require', 'verify-ca', 'verify-full'];
 
-export function DatabaseSettingsSection() {
+export function DatabaseSettingsSection({
+  catalogStatus,
+  catalogCount,
+}: {
+  catalogStatus: FieldCatalogStatus;
+  catalogCount: number;
+}) {
   const isDesktop = isTauriRuntime();
   const [settings, setSettings] = useState<DatabaseSettings>(emptyDatabaseSettings);
   const [passwordConfigured, setPasswordConfigured] = useState(false);
@@ -107,6 +114,11 @@ export function DatabaseSettingsSection() {
       </div>
       {detailMessage ? <p className="database-detail">{detailMessage}</p> : null}
 
+      <div className={`catalog-status catalog-status--${catalogStatus}`} role="status">
+        <span>{catalogStatusText(catalogStatus)}</span>
+        <strong>Campi disponibili: {catalogCount}</strong>
+      </div>
+
       {!isDesktop ? (
         <p className="database-warning">La configurazione PostgreSQL è disponibile nell'app desktop.</p>
       ) : null}
@@ -164,6 +176,24 @@ export function DatabaseSettingsSection() {
       </div>
     </section>
   );
+}
+
+function catalogStatusText(status: FieldCatalogStatus) {
+  switch (status) {
+    case 'loading':
+      return 'Caricamento catalogo...';
+    case 'ready':
+      return 'Catalogo condiviso pronto';
+    case 'refreshing':
+      return 'Caricamento catalogo...';
+    case 'stale':
+      return 'Catalogo non aggiornato';
+    case 'temporary':
+      return 'Modalità browser - catalogo temporaneo';
+    case 'unavailable':
+    default:
+      return 'Catalogo non disponibile';
+  }
 }
 
 function TextField({

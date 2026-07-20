@@ -12,7 +12,15 @@ La password viene protetta localmente con DPAPI per l'utente Windows corrente e 
 
 Il file locale è `database-settings.json` dentro `app_local_data_dir()`. Contiene versione del formato, impostazioni non sensibili e password cifrata. La configurazione è per singola postazione, mentre PostgreSQL è pensato come database condiviso tra operatori.
 
-In questa fase non vengono create tabelle PostgreSQL, non viene persistito alcun catalogo e non viene salvato alcun dato documentale.
+qExtrai usa un database PostgreSQL dedicato, indicativamente `qextrai`; l'applicazione non crea il database. Al primo accesso al catalogo esegue migrazioni SQLx incorporate nell'eseguibile e crea lo schema `qextrai` con la tabella `qextrai.field_definitions`.
+
+L'utente configurato deve poter connettersi al database dedicato, creare lo schema iniziale, applicare le migrazioni SQLx, leggere e modificare le tabelle qExtrai. SQLx gestisce la propria tabella di controllo migrazioni.
+
+Il catalogo campi è condiviso tra le postazioni collegate allo stesso database. Ogni campo ha una `revision`; gli aggiornamenti formato usano la revisione attesa per evitare sovrascritture silenziose tra operatori.
+
+In modalità browser il catalogo resta temporaneo in memoria. Se il server PostgreSQL non è disponibile in desktop, qExtrai continua ad aprire documenti e mantenere il catalogo già visibile, ma impedisce nuove modifiche persistenti finché il catalogo condiviso non torna disponibile.
+
+In questa fase non vengono persistiti documenti, regioni, valori, template, OCR, estrazioni o esportazioni.
 
 ## Comandi
 

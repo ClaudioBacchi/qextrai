@@ -87,6 +87,7 @@ pub enum ConnectionStatus {
 pub struct CommandError {
     pub message: String,
     pub detail: String,
+    pub code: CommandErrorCode,
 }
 
 impl CommandError {
@@ -94,8 +95,34 @@ impl CommandError {
         Self {
             message: message.into(),
             detail: redact_secret_text(&detail.into()),
+            code: CommandErrorCode::Generic,
         }
     }
+
+    pub fn with_code(
+        message: impl Into<String>,
+        detail: impl Into<String>,
+        code: CommandErrorCode,
+    ) -> Self {
+        Self {
+            message: message.into(),
+            detail: redact_secret_text(&detail.into()),
+            code,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CommandErrorCode {
+    Generic,
+    DatabaseUnavailable,
+    MigrationFailed,
+    PermissionDenied,
+    Duplicate,
+    RevisionConflict,
+    InvalidData,
+    PostgresError,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

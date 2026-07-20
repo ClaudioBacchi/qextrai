@@ -17,6 +17,7 @@ type FieldDefinitionEditorProps = {
   catalog: FieldDefinition[];
   usedDefinitionIds?: string[];
   submitLabel?: string;
+  errorMessage?: string;
   onSave: (data: FieldEditorSave) => void;
   onCancel: () => void;
 };
@@ -25,6 +26,7 @@ export function FieldDefinitionEditor({
   catalog,
   usedDefinitionIds = [],
   submitLabel,
+  errorMessage,
   onSave,
   onCancel,
 }: FieldDefinitionEditorProps) {
@@ -94,6 +96,7 @@ export function FieldDefinitionEditor({
         </div>
       ) : null}
       {validation ? <p className="field-editor-error">{validation}</p> : null}
+      {errorMessage ? <p className="field-editor-error">{errorMessage}</p> : null}
       <div className="field-editor-actions">
         <button className="button button--ghost" type="button" onClick={onCancel}>
           Annulla

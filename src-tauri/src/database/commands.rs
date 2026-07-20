@@ -1,3 +1,6 @@
+use super::field_catalog::{
+    CreateFieldDefinitionInput, FieldDefinitionRecord, UpdateFieldDefinitionFormatInput,
+};
 use super::models::{
     CommandError, ConnectionStatus, ConnectionTestResult, DatabaseSettingsInput,
     DatabaseSettingsPublic,
@@ -37,6 +40,10 @@ pub async fn save_database_settings(
                 error.to_string(),
             )
         })?
+        .map(|saved| {
+            super::connection_manager::invalidate_pool();
+            saved
+        })
         .map_err(|error| CommandError::new("Impossibile salvare le impostazioni database.", error))
 }
 
@@ -77,6 +84,42 @@ pub async fn test_database_connection(
         }
         ConnectionInput::MissingPassword(result) => Ok(result),
     }
+}
+
+#[tauri::command]
+pub async fn list_field_definitions(
+    app: AppHandle,
+) -> Result<Vec<FieldDefinitionRecord>, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::field_catalog::list_field_definitions(&directory)
+        .await
+        .map_err(command_error_from_catalog)
+}
+
+#[tauri::command]
+pub async fn create_field_definition(
+    app: AppHandle,
+    input: CreateFieldDefinitionInput,
+) -> Result<FieldDefinitionRecord, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::field_catalog::create_field_definition(&directory, input)
+        .await
+        .map_err(command_error_from_catalog)
+}
+
+#[tauri::command]
+pub async fn update_field_definition_format(
+    app: AppHandle,
+    input: UpdateFieldDefinitionFormatInput,
+) -> Result<FieldDefinitionRecord, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::field_catalog::update_field_definition_format(&directory, input)
+        .await
+        .map_err(command_error_from_catalog)
+}
+
+fn command_error_from_catalog(error: super::field_catalog::CatalogError) -> CommandError {
+    CommandError::with_code(error.message(), error.detail(), error.code())
 }
 
 enum ConnectionInput {

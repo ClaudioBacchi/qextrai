@@ -2,12 +2,15 @@ import { ArrowLeft, FolderOpen, Languages, Save, SlidersHorizontal } from 'lucid
 import { useEffect, useState } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { DatabaseSettingsSection } from '../components/DatabaseSettingsSection';
+import type { FieldCatalogStatus } from '../domain/fieldCatalogRepository';
 
 type PreferencesPageProps = {
   onBack: () => void;
+  catalogStatus: FieldCatalogStatus;
+  catalogCount: number;
 };
 
-export function PreferencesPage({ onBack }: PreferencesPageProps) {
+export function PreferencesPage({ onBack, catalogStatus, catalogCount }: PreferencesPageProps) {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -41,7 +44,7 @@ export function PreferencesPage({ onBack }: PreferencesPageProps) {
               </label>
             </PreferenceSection>
 
-            <DatabaseSettingsSection />
+            <DatabaseSettingsSection catalogStatus={catalogStatus} catalogCount={catalogCount} />
 
             <PreferenceSection title="Esportazione" icon={<Save aria-hidden="true" size={21} />}>
               <Field label="Formato predefinito" value="Excel" />

@@ -38,6 +38,7 @@ export function createFieldDefinition(
     normalizedName: normalizeFieldName(cleaned),
     kind,
     valueType: normalizeValueType(kind, valueType),
+    revision: 1,
   };
 }
 
@@ -64,7 +65,7 @@ export function updateDefinitionFormat(
 ) {
   return catalog.map((definition) =>
     definition.id === definitionId
-      ? { ...definition, kind, valueType: normalizeValueType(kind, valueType) }
+      ? { ...definition, kind, valueType: normalizeValueType(kind, valueType), revision: definition.revision + 1 }
       : definition,
   );
 }

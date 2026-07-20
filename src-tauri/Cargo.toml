@@ -21,6 +21,8 @@ sqlx = { version = "0.8", default-features = false, features = [
   "runtime-tokio",
   "tls-native-tls",
   "postgres",
+  "migrate",
+  "macros",
 ] }
 tokio = { version = "1", features = ["time"] }
 windows-sys = { version = "0.61", features = [
