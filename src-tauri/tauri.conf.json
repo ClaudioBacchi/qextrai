@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Qextrai",
+  "version": "0.1.0",
+  "identifier": "it.queen.qextrai",
+  "mainBinaryName": "qextrai",
+  "build": {
+    "beforeDevCommand": "npm.cmd run dev",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeBuildCommand": "npm.cmd run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Qextrai",
+        "label": "main",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 1100,
+        "minHeight": 700,
+        "resizable": true,
+        "center": true,
+        "maximized": true,
+        "decorations": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"]
+  }
+}

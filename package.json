@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build"
   },
   "dependencies": {
     "@fontsource/manrope": "^5.2.8",
@@ -22,6 +25,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.17.0",

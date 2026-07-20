@@ -6,9 +6,12 @@ Prototipo navigabile della Fase 1: fondazione grafica e interfaccia dimostrativa
 
 ```bash
 npm install
-npm run dev
-npm run lint
-npm run build
+npm.cmd run dev
+npm.cmd run lint
+npm.cmd run test
+npm.cmd run build
+npm.cmd run desktop:dev
+npm.cmd run desktop:build
 ```
 
 L'applicazione non include backend, OCR, lettura PDF reale o chiamate esterne.
