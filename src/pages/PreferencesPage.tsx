@@ -26,7 +26,7 @@ export function PreferencesPage({ onBack }: PreferencesPageProps) {
               Torna indietro
             </button>
             <p className="eyebrow">Preferenze</p>
-            <h1 id="preferences-title">Impostazioni di Qextrai</h1>
+            <h1 id="preferences-title">Impostazioni di qExtrai</h1>
             <p>Queste impostazioni vengono configurate una volta e non sono richieste durante il lavoro quotidiano.</p>
           </div>
 

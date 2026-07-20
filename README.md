@@ -1,6 +1,6 @@
-# Qextrai
+# qExtrai
 
-Prototipo navigabile della Fase 1: fondazione grafica e interfaccia dimostrativa per Qextrai.
+Prototipo navigabile della Fase 1: fondazione grafica e interfaccia dimostrativa per qExtrai.
 
 ## Comandi
 

@@ -35,18 +35,17 @@ export function HomePage({ onOpenDocument, onOpenPreferences }: HomePageProps) {
             <p className="eyebrow">Dal documento al dato, con evidenza</p>
             <h1 id="home-title">
               Estrai ciò che serve.
-              <span>Controlla da dove arriva.</span>
+              <span>Invialo dove serve.</span>
             </h1>
             <p className="home-hero__text">
-              Apri un documento, lascia che Qextrai suggerisca i campi e conferma soltanto
-              quelli utili. Ogni valore resta collegato alla sua origine.
+              Apri un documento, verifica i dati utili e inviali alla destinazione scelta: ERP, API o file. Ogni valore resta collegato alla sua origine.
             </p>
             <div className="flow-steps" aria-label="Percorso principale">
-              <span>1 Apri</span>
+              <span>1. Estrai</span>
               <b aria-hidden="true">→</b>
-              <span>2 Suggerisci</span>
+              <span>2. Esporta</span>
               <b aria-hidden="true">→</b>
-              <span>3 Verifica</span>
+              <span>3. Fatto!</span>
             </div>
           </div>
 

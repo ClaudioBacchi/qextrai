@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default permissions for Qextrai","local":true,"windows":["main"],"permissions":["core:default"]}}
+{"default":{"identifier":"default","description":"Default permissions for qExtrai","local":true,"windows":["main"],"permissions":["core:default"]}}

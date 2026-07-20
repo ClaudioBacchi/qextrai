@@ -1,8 +1,8 @@
 [package]
 name = "qextrai"
 version = "0.1.0"
-description = "Qextrai desktop application"
-authors = ["Qextrai"]
+description = "qExtrai desktop application"
+authors = ["qExtrai"]
 edition = "2021"
 
 [lib]
