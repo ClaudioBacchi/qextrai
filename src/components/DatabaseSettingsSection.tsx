@@ -23,9 +23,13 @@ const sslModes: SslMode[] = ['prefer', 'require', 'verify-ca', 'verify-full'];
 export function DatabaseSettingsSection({
   catalogStatus,
   catalogCount,
+  templateStatus,
+  templateCount,
 }: {
   catalogStatus: FieldCatalogStatus;
   catalogCount: number;
+  templateStatus: FieldCatalogStatus;
+  templateCount: number;
 }) {
   const isDesktop = isTauriRuntime();
   const [settings, setSettings] = useState<DatabaseSettings>(emptyDatabaseSettings);
@@ -118,6 +122,10 @@ export function DatabaseSettingsSection({
         <span>{catalogStatusText(catalogStatus)}</span>
         <strong>Campi disponibili: {catalogCount}</strong>
       </div>
+      <div className={`catalog-status catalog-status--${templateStatus}`} role="status">
+        <span>{templateStatusText(templateStatus)}</span>
+        <strong>Template disponibili: {templateCount}</strong>
+      </div>
 
       {!isDesktop ? (
         <p className="database-warning">La configurazione PostgreSQL è disponibile nell'app desktop.</p>
@@ -176,6 +184,23 @@ export function DatabaseSettingsSection({
       </div>
     </section>
   );
+}
+
+function templateStatusText(status: FieldCatalogStatus) {
+  switch (status) {
+    case 'loading':
+    case 'refreshing':
+      return 'Caricamento template...';
+    case 'ready':
+      return 'Template condivisi pronti';
+    case 'stale':
+      return 'Template non aggiornati';
+    case 'temporary':
+      return 'Modalità browser - template temporanei';
+    case 'unavailable':
+    default:
+      return 'Template non disponibili';
+  }
 }
 
 function catalogStatusText(status: FieldCatalogStatus) {

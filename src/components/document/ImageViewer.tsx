@@ -13,6 +13,7 @@ type ImageViewerProps = {
   onSelectRegion: (id: string | null) => void;
   onChangeRegion: (id: string, rect: NormalizedRect) => void;
   onFinishDrawing: () => void;
+  onPageCountChange: (pageCount: number | null) => void;
 };
 
 export function ImageViewer({
@@ -26,6 +27,7 @@ export function ImageViewer({
   onSelectRegion,
   onChangeRegion,
   onFinishDrawing,
+  onPageCountChange,
 }: ImageViewerProps) {
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
@@ -37,12 +39,14 @@ export function ImageViewer({
     setError('');
     setNaturalWidth(null);
     onBaseWidthChange(null);
+    onPageCountChange(1);
 
     return () => {
       URL.revokeObjectURL(objectUrl);
       onBaseWidthChange(null);
+      onPageCountChange(null);
     };
-  }, [file, onBaseWidthChange]);
+  }, [file, onBaseWidthChange, onPageCountChange]);
 
   if (error) {
     return <div className="viewer-state viewer-state--error">{error}</div>;

@@ -18,6 +18,7 @@ type PdfViewerProps = {
   onSelectRegion: (id: string | null) => void;
   onChangeRegion: (id: string, rect: NormalizedRect) => void;
   onFinishDrawing: () => void;
+  onPageCountChange: (pageCount: number | null) => void;
 };
 
 export function PdfViewer({
@@ -31,6 +32,7 @@ export function PdfViewer({
   onSelectRegion,
   onChangeRegion,
   onFinishDrawing,
+  onPageCountChange,
 }: PdfViewerProps) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -45,6 +47,7 @@ export function PdfViewer({
       setStatus('loading');
       setMessage('Caricamento del PDF...');
       onBaseWidthChange(null);
+      onPageCountChange(null);
 
       try {
         const buffer = await file.arrayBuffer();
@@ -66,6 +69,7 @@ export function PdfViewer({
         const firstViewport = firstPage.getViewport({ scale: 1 });
         firstPage.cleanup();
         onBaseWidthChange(firstViewport.width);
+        onPageCountChange(loadedPdf.numPages);
 
         setPdf(loadedPdf);
         setStatus('ready');
@@ -75,6 +79,7 @@ export function PdfViewer({
           setStatus('error');
           setMessage(messageForPdfError(error));
           onBaseWidthChange(null);
+          onPageCountChange(null);
         }
       }
     };
@@ -89,7 +94,7 @@ export function PdfViewer({
         return null;
       });
     };
-  }, [file, onBaseWidthChange]);
+  }, [file, onBaseWidthChange, onPageCountChange]);
 
   if (status === 'loading') {
     return <div className="viewer-state" role="status">{message}</div>;

@@ -1,11 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { RefreshCw, Save, Upload } from 'lucide-react';
 import type { LocalDocument } from '../app/documentTypes';
 import { AppHeader } from '../components/AppHeader';
 import { UnsavedFieldDialog } from '../components/UnsavedFieldDialog';
+import { UnsavedLayoutDialog } from '../components/UnsavedLayoutDialog';
 import { DocumentViewer } from '../components/document/DocumentViewer';
 import type { DocumentRegion, NormalizedRect } from '../components/document/documentGeometry';
 import { DocumentFieldsPanel, type EditorState } from '../components/fields/DocumentFieldsPanel';
 import { findDefinitionByName } from '../domain/fieldCatalog';
+import { calculateDocumentFingerprint } from '../domain/documentFingerprint';
+import {
+  applyTemplateToDocument,
+  hasUnsavedTemplateChanges,
+  templateFromLayout,
+  type DocumentTemplate,
+  type DocumentTemplateSummary,
+} from '../domain/documentTemplates';
+import {
+  DocumentTemplateError,
+  type DocumentTemplateRepository,
+} from '../domain/documentTemplateRepository';
+import { getUnsavedLayoutWarning } from '../domain/unsavedLayoutGuard';
 import {
   commitDraftRegion,
   discardDraftRegion,
@@ -39,6 +54,10 @@ type WorkspacePageProps = {
   catalogMessage: string;
   catalogRepository: FieldCatalogRepository;
   onRefreshCatalog: () => Promise<void>;
+  templateRepository: DocumentTemplateRepository;
+  templateSummaries: DocumentTemplateSummary[];
+  templateStatus: FieldCatalogStatus;
+  onRefreshTemplates: () => Promise<void>;
   onDocumentFieldsChange: (fields: DocumentField[]) => void;
   onRegionsChange: (regions: DocumentRegion[]) => void;
   onSelectRegion: (id: string | null) => void;
@@ -49,6 +68,11 @@ type WorkspacePageProps = {
 
 type DrawingMode = { type: 'new' } | { type: 'append'; fieldId: string } | null;
 type PendingNavigation = 'preferences' | 'back' | 'new-document';
+type ProtectedWorkspaceAction =
+  | { type: 'navigation'; target: PendingNavigation }
+  | { type: 'replace-document'; file: File }
+  | { type: 'reload-template' }
+  | { type: 'apply-template'; templateId: string };
 
 const acceptedTypes = '.pdf,.jpg,.jpeg,.png';
 
@@ -63,6 +87,10 @@ export function WorkspacePage({
   catalogMessage,
   catalogRepository,
   onRefreshCatalog,
+  templateRepository,
+  templateSummaries,
+  templateStatus,
+  onRefreshTemplates,
   onDocumentFieldsChange,
   onRegionsChange,
   onSelectRegion,
@@ -75,14 +103,41 @@ export function WorkspacePage({
   const [editor, setEditor] = useState<EditorState>(null);
   const [draftRegion, setDraftRegion] = useState<DocumentRegion | null>(null);
   const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation | null>(null);
+  const [pendingLayoutAction, setPendingLayoutAction] = useState<ProtectedWorkspaceAction | null>(null);
   const [editorError, setEditorError] = useState('');
+  const [pageCount, setPageCount] = useState<number | null>(null);
+  const [fingerprint, setFingerprint] = useState<string | null>(null);
+  const [fingerprintStatus, setFingerprintStatus] = useState('');
+  const [activeTemplate, setActiveTemplate] = useState<DocumentTemplate | null>(null);
+  const [templateDirty, setTemplateDirty] = useState(false);
+  const [templateMessage, setTemplateMessage] = useState('Nessun template associato.');
+  const [hiddenTemplateRegionCount, setHiddenTemplateRegionCount] = useState(0);
+  const [templateDialog, setTemplateDialog] = useState<'save' | 'apply' | null>(null);
+  const [templateName, setTemplateName] = useState('');
   const canAddRegion = document?.viewType === 'pdf' || document?.viewType === 'image';
   const visibleRegions = useMemo(() => displayRegions(regions, draftRegion), [regions, draftRegion]);
   const hasDraft = hasUnsavedDraft(draftRegion, editor);
+  const hasTemplateChanges = hasUnsavedTemplateChanges(activeTemplate?.revision ?? null, templateDirty);
+  const unsavedLayoutWarning = getUnsavedLayoutWarning({
+    activeTemplate,
+    templateDirty,
+    fieldCount: documentFields.length,
+  });
+  const templateStoreReady = templateStatus === 'ready' || templateStatus === 'temporary';
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (pendingLayoutAction) {
+          event.preventDefault();
+          stayOnWorkspace();
+          return;
+        }
+        if (templateDialog) {
+          event.preventDefault();
+          setTemplateDialog(null);
+          return;
+        }
         if (pendingNavigation) {
           event.preventDefault();
           continueEditingDraft();
@@ -109,14 +164,79 @@ export function WorkspacePage({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [drawingMode, editor, pendingNavigation, selectedRegionId, regions, documentFields, draftRegion]);
+  }, [
+    drawingMode,
+    editor,
+    pendingNavigation,
+    selectedRegionId,
+    regions,
+    documentFields,
+    draftRegion,
+    templateDialog,
+    pendingLayoutAction,
+  ]);
+
+  useEffect(() => {
+    if (!document) {
+      resetTemplateState();
+      return;
+    }
+
+    let cancelled = false;
+    setFingerprint(null);
+    setFingerprintStatus('Calcolo impronta documento...');
+    setActiveTemplate(null);
+    setTemplateDirty(false);
+    setHiddenTemplateRegionCount(0);
+    setTemplateMessage('Nessun template associato.');
+
+    calculateDocumentFingerprint(document.file)
+      .then((value) => {
+        if (cancelled) return;
+        setFingerprint(value);
+        setFingerprintStatus('Ricerca template associato...');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFingerprintStatus('Impronta documento non disponibile.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [document]);
+
+  useEffect(() => {
+    if (!document || !fingerprint || !pageCount) return;
+
+    let cancelled = false;
+    setFingerprintStatus('Ricerca template associato...');
+    templateRepository
+      .findByFingerprint(fingerprint)
+      .then((template) => {
+        if (cancelled) return;
+        if (template) {
+          applyTemplate(template, pageCount);
+          setTemplateMessage(`Template "${template.name}" applicato automaticamente.`);
+        } else {
+          setFingerprintStatus('');
+          setTemplateMessage('Nessun template associato.');
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setFingerprintStatus('');
+        setTemplateMessage(messageForTemplateError(error, 'Template non disponibili.'));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [document, fingerprint, pageCount, templateRepository]);
 
   const replaceDocument = (file?: File) => {
     if (file) {
-      onReplaceDocument(file);
-      setDrawingMode(null);
-      setEditor(null);
-      setDraftRegion(null);
+      requestProtectedAction({ type: 'replace-document', file });
     }
     if (inputRef.current) {
       inputRef.current.value = '';
@@ -129,11 +249,38 @@ export function WorkspacePage({
       return;
     }
 
-    if (drawingMode?.type === 'new') {
-      setDrawingMode(null);
+    requestProtectedAction({ type: 'navigation', target });
+  };
+
+  const requestProtectedAction = (action: ProtectedWorkspaceAction) => {
+    if (unsavedLayoutWarning) {
+      setPendingLayoutAction(action);
+      return;
     }
 
-    completeNavigation(target);
+    void completeProtectedAction(action);
+  };
+
+  const completeProtectedAction = async (action: ProtectedWorkspaceAction) => {
+    if (action.type === 'navigation') {
+      if (drawingMode?.type === 'new') {
+        setDrawingMode(null);
+      }
+      completeNavigation(action.target);
+      return;
+    }
+
+    if (action.type === 'replace-document') {
+      replaceDocumentWithoutPrompt(action.file);
+      return;
+    }
+
+    if (action.type === 'reload-template') {
+      await reloadSharedTemplateWithoutPrompt();
+      return;
+    }
+
+    await applyTemplateManuallyWithoutPrompt(action.templateId);
   };
 
   const completeNavigation = (target: PendingNavigation) => {
@@ -164,8 +311,34 @@ export function WorkspacePage({
     const target = pendingNavigation;
     setPendingNavigation(null);
     if (target) {
-      completeNavigation(target);
+      requestProtectedAction({ type: 'navigation', target });
     }
+  };
+
+  const stayOnWorkspace = () => {
+    setPendingLayoutAction(null);
+  };
+
+  const discardLayoutAndContinue = () => {
+    const action = pendingLayoutAction;
+    setPendingLayoutAction(null);
+    if (action) void completeProtectedAction(action);
+  };
+
+  const saveLayoutAndContinue = async () => {
+    if (!pendingLayoutAction) return false;
+
+    if (activeTemplate) {
+      const saved = await saveTemplateChanges();
+      if (!saved) return false;
+      const action = pendingLayoutAction;
+      setPendingLayoutAction(null);
+      await completeProtectedAction(action);
+      return true;
+    }
+
+    openSaveDialog();
+    return true;
   };
 
   const focusDraftEditor = () => {
@@ -185,6 +358,7 @@ export function WorkspacePage({
       onDocumentFieldsChange(addRegionToField(documentFields, drawingMode.fieldId, id));
       onSelectRegion(id);
       setDrawingMode(null);
+      markTemplateDirty();
       return;
     }
 
@@ -201,6 +375,7 @@ export function WorkspacePage({
       return;
     }
     onRegionsChange(regions.map((region) => (region.id === id ? { ...region, rect } : region)));
+    markTemplateDirty();
   };
 
   const saveEditor = async (data: FieldEditorSave) => {
@@ -238,10 +413,12 @@ export function WorkspacePage({
       );
       onSelectRegion(editor.regionId);
       setDraftRegion(null);
+      markTemplateDirty();
     }
 
     if (editor?.type === 'change') {
       onDocumentFieldsChange(changeFieldDefinition(documentFields, editor.fieldId, definition.id));
+      markTemplateDirty();
     }
 
     setEditor(null);
@@ -291,6 +468,7 @@ export function WorkspacePage({
     onDocumentFieldsChange(removeRegionFromFields(documentFields, regionId));
     if (selectedRegionId === regionId) onSelectRegion(null);
     if (editor?.type === 'region' && editor.regionId === regionId) setEditor(null);
+    markTemplateDirty();
   };
 
   const deleteField = (fieldId: string) => {
@@ -300,12 +478,202 @@ export function WorkspacePage({
     onDocumentFieldsChange(removeField(documentFields, fieldId));
     if (selectedRegionId && field.regionIds.includes(selectedRegionId)) onSelectRegion(null);
     if (editor?.type === 'change' && editor.fieldId === fieldId) setEditor(null);
+    markTemplateDirty();
+  };
+
+  const applyTemplate = (template: DocumentTemplate, availablePageCount: number) => {
+    const layout = applyTemplateToDocument(template, availablePageCount);
+    onRegionsChange(layout.regions);
+    onDocumentFieldsChange(layout.fields);
+    onSelectRegion(null);
+    setActiveTemplate(template);
+    setTemplateDirty(false);
+    setHiddenTemplateRegionCount(layout.hiddenRegionCount);
+    setFingerprintStatus('');
+  };
+
+  const saveAsTemplate = async () => {
+    if (!document || !fingerprint || !pageCount) return;
+    const id = makeId('template');
+    const fields = templateFromLayout({ templateId: id, catalog, fields: documentFields, regions });
+    if (fields.length === 0) {
+      setTemplateMessage('Aggiungi almeno un campo prima di salvare il template.');
+      return;
+    }
+    try {
+      const template = await templateRepository.create({
+        id,
+        name: templateName.trim(),
+        sourcePageCount: pageCount,
+        documentFingerprint: fingerprint,
+        documentSize: document.file.size,
+        pageCount,
+        fields,
+      });
+      setTemplateDialog(null);
+      setTemplateName('');
+      applyTemplate(template, pageCount);
+      setTemplateMessage(`Template "${template.name}" salvato.`);
+      await onRefreshTemplates();
+      const action = pendingLayoutAction;
+      setPendingLayoutAction(null);
+      if (action) await completeProtectedAction(action);
+    } catch (error) {
+      setTemplateMessage(messageForTemplateError(error, 'Impossibile salvare il template.'));
+    }
+  };
+
+  const saveTemplateChanges = async () => {
+    if (!activeTemplate || !pageCount) return false;
+    const fields = templateFromLayout({ templateId: activeTemplate.id, catalog, fields: documentFields, regions });
+    if (fields.length === 0) {
+      setTemplateMessage('Il template deve contenere almeno un campo.');
+      return false;
+    }
+    try {
+      const template = await templateRepository.update({
+        id: activeTemplate.id,
+        expectedRevision: activeTemplate.revision,
+        sourcePageCount: pageCount,
+        fields,
+      });
+      applyTemplate(template, pageCount);
+      setTemplateMessage(`Template "${template.name}" aggiornato alla revisione ${template.revision}.`);
+      await onRefreshTemplates();
+      return true;
+    } catch (error) {
+      setTemplateMessage(messageForTemplateError(error, 'Impossibile aggiornare il template.'));
+      return false;
+    }
+  };
+
+  const reloadSharedTemplate = async () => {
+    requestProtectedAction({ type: 'reload-template' });
+  };
+
+  const reloadSharedTemplateWithoutPrompt = async () => {
+    if (!activeTemplate || !pageCount) return;
+    try {
+      const template = await templateRepository.get(activeTemplate.id);
+      if (!template) {
+        setTemplateMessage('Template non trovato.');
+        return;
+      }
+      applyTemplate(template, pageCount);
+      setTemplateMessage(`Template "${template.name}" ricaricato.`);
+      await onRefreshTemplates();
+    } catch (error) {
+      setTemplateMessage(messageForTemplateError(error, 'Impossibile ricaricare il template.'));
+    }
+  };
+
+  const applyTemplateManually = async (templateId: string) => {
+    requestProtectedAction({ type: 'apply-template', templateId });
+  };
+
+  const applyTemplateManuallyWithoutPrompt = async (templateId: string) => {
+    if (!document || !fingerprint || !pageCount) return;
+    try {
+      const template = await templateRepository.bind({
+        documentFingerprint: fingerprint,
+        templateId,
+        documentSize: document.file.size,
+        pageCount,
+      });
+      applyTemplate(template, pageCount);
+      setTemplateDialog(null);
+      setTemplateMessage(`Template "${template.name}" applicato e associato al documento.`);
+      await onRefreshTemplates();
+    } catch (error) {
+      setTemplateMessage(messageForTemplateError(error, 'Impossibile applicare il template.'));
+    }
+  };
+
+  const markTemplateDirty = () => {
+    if (!activeTemplate) return;
+    setTemplateDirty(true);
+    setTemplateMessage('Modifiche al template non salvate.');
+  };
+
+  const resetTemplateState = () => {
+    setPageCount(null);
+    setFingerprint(null);
+    setFingerprintStatus('');
+    setActiveTemplate(null);
+    setTemplateDirty(false);
+    setTemplateMessage('Nessun template associato.');
+    setHiddenTemplateRegionCount(0);
+    setTemplateDialog(null);
+    setTemplateName('');
+  };
+
+  const openSaveDialog = () => {
+    setTemplateName(activeTemplate?.name ?? document?.name.replace(/\.[^.]+$/, '') ?? '');
+    setTemplateDialog('save');
+  };
+
+  const replaceDocumentWithoutPrompt = (file: File) => {
+    onReplaceDocument(file);
+    setDrawingMode(null);
+    setEditor(null);
+    setDraftRegion(null);
+    resetTemplateState();
   };
 
   const drawingMessage =
     drawingMode?.type === 'append'
-      ? `Trascina sul documento per aggiungere un'altra area a «${labelForField(drawingMode.fieldId, documentFields, catalog)}»`
+      ? `Trascina sul documento per aggiungere un'altra area a "${labelForField(drawingMode.fieldId, documentFields, catalog)}"`
       : 'Trascina sul documento per delimitare il campo';
+
+  const templateBar = (
+    <div className="template-bar" aria-label="Template documentale">
+      <div className="template-bar__status">
+        <strong>{activeTemplate ? `${activeTemplate.name} - rev. ${activeTemplate.revision}` : 'Template documento'}</strong>
+        <span>
+          {fingerprintStatus || templateMessage}
+          {hiddenTemplateRegionCount > 0 ? ` ${hiddenTemplateRegionCount} aree fuori dalle pagine correnti.` : ''}
+        </span>
+      </div>
+      <div className="template-bar__actions">
+        {activeTemplate ? (
+          <>
+            <button
+              className="button button--primary button--compact"
+              type="button"
+              disabled={!hasTemplateChanges || !templateStoreReady}
+              onClick={saveTemplateChanges}
+            >
+              <Save aria-hidden="true" size={16} />
+              Salva modifiche
+            </button>
+            <button className="button button--secondary button--compact" type="button" onClick={reloadSharedTemplate}>
+              <RefreshCw aria-hidden="true" size={16} />
+              Ricarica
+            </button>
+          </>
+        ) : (
+          <button
+            className="button button--primary button--compact"
+            type="button"
+            disabled={!templateStoreReady || documentFields.length === 0 || !fingerprint || !pageCount}
+            onClick={openSaveDialog}
+          >
+            <Save aria-hidden="true" size={16} />
+            Salva template
+          </button>
+        )}
+        <button
+          className="button button--secondary button--compact"
+          type="button"
+          disabled={!templateStoreReady || templateSummaries.length === 0 || !fingerprint || !pageCount}
+          onClick={() => setTemplateDialog('apply')}
+        >
+          <Upload aria-hidden="true" size={16} />
+          Applica
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -334,6 +702,7 @@ export function WorkspacePage({
           onSelectRegion={onSelectRegion}
           onChangeRegion={changeRegion}
           onFinishDrawing={() => setDrawingMode(null)}
+          onPageCountChange={setPageCount}
         />
         <DocumentFieldsPanel
           catalog={catalog}
@@ -346,6 +715,7 @@ export function WorkspacePage({
           catalogStatus={catalogStatus}
           catalogMessage={catalogMessage}
           editorError={editorError}
+          templateBar={templateBar}
           editor={editor}
           onToggleDrawing={() => {
             if (focusDraftEditor()) return;
@@ -381,7 +751,121 @@ export function WorkspacePage({
           onDiscard={discardDraftAndContinue}
         />
       ) : null}
+      {pendingLayoutAction && unsavedLayoutWarning && templateDialog !== 'save' ? (
+        <UnsavedLayoutDialog
+          warning={unsavedLayoutWarning}
+          onStay={stayOnWorkspace}
+          onDiscard={discardLayoutAndContinue}
+          onSaveAndContinue={saveLayoutAndContinue}
+        />
+      ) : null}
+      {templateDialog === 'save' ? (
+        <TemplateSaveDialog
+          name={templateName}
+          fieldCount={documentFields.length}
+          regionCount={regions.length}
+          pageCount={pageCount}
+          message={templateMessage}
+          onNameChange={setTemplateName}
+          onCancel={() => setTemplateDialog(null)}
+          onSave={saveAsTemplate}
+        />
+      ) : null}
+      {templateDialog === 'apply' ? (
+        <TemplateApplyDialog
+          templates={templateSummaries}
+          message={templateMessage}
+          onCancel={() => setTemplateDialog(null)}
+          onApply={applyTemplateManually}
+        />
+      ) : null}
     </>
+  );
+}
+
+function TemplateSaveDialog({
+  name,
+  fieldCount,
+  regionCount,
+  pageCount,
+  message,
+  onNameChange,
+  onCancel,
+  onSave,
+}: {
+  name: string;
+  fieldCount: number;
+  regionCount: number;
+  pageCount: number | null;
+  message: string;
+  onNameChange: (name: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" aria-hidden={false}>
+      <section className="confirm-dialog template-dialog" role="dialog" aria-modal="true" aria-labelledby="save-template-title">
+        <h2 id="save-template-title">Salva template condiviso</h2>
+        <label className="template-dialog__field">
+          <span>Nome template</span>
+          <input value={name} onChange={(event) => onNameChange(event.target.value)} autoFocus />
+        </label>
+        <p>
+          Verranno salvati {fieldCount} campi, {regionCount} aree, {pageCount ?? 0} pagine sorgente.
+        </p>
+        <p className="field-editor-note">{message}</p>
+        <div className="confirm-dialog__actions">
+          <button className="button button--secondary" type="button" onClick={onCancel}>
+            Annulla
+          </button>
+          <button className="button button--primary" type="button" disabled={!name.trim() || fieldCount === 0} onClick={onSave}>
+            Salva template
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function TemplateApplyDialog({
+  templates,
+  message,
+  onCancel,
+  onApply,
+}: {
+  templates: DocumentTemplateSummary[];
+  message: string;
+  onCancel: () => void;
+  onApply: (templateId: string) => void;
+}) {
+  return (
+    <div className="modal-backdrop" aria-hidden={false}>
+      <section className="confirm-dialog template-dialog" role="dialog" aria-modal="true" aria-labelledby="apply-template-title">
+        <h2 id="apply-template-title">Applica template</h2>
+        <p>Seleziona un layout condiviso da associare al documento corrente.</p>
+        <div className="template-options">
+          {templates.map((template) => (
+            <button
+              key={template.id}
+              className="template-option"
+              type="button"
+              onClick={() => onApply(template.id)}
+            >
+              <strong>{template.name}</strong>
+              <span>
+                Rev. {template.revision} - {template.fieldCount} campi - {template.regionCount} aree - {template.sourcePageCount} pagine
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="field-editor-note">{message}</p>
+        <div className="confirm-dialog__actions">
+          <button className="button button--secondary" type="button" onClick={onCancel}>
+            Annulla
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -405,5 +889,10 @@ function isEditingText(target: EventTarget | null) {
 
 function messageForCatalogError(error: unknown, fallback: string) {
   if (error instanceof FieldCatalogError) return error.message;
+  return fallback;
+}
+
+function messageForTemplateError(error: unknown, fallback: string) {
+  if (error instanceof DocumentTemplateError) return error.message;
   return fallback;
 }

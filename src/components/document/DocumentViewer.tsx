@@ -13,6 +13,7 @@ type DocumentViewerProps = {
   onSelectRegion: (id: string | null) => void;
   onChangeRegion: (id: string, rect: NormalizedRect) => void;
   onFinishDrawing: () => void;
+  onPageCountChange: (pageCount: number | null) => void;
 };
 
 const minScale = 0.4;
@@ -29,6 +30,7 @@ export function DocumentViewer({
   onSelectRegion,
   onChangeRegion,
   onFinishDrawing,
+  onPageCountChange,
 }: DocumentViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -45,6 +47,7 @@ export function DocumentViewer({
     setFitMode(true);
     setScale(1);
     setBaseWidth(null);
+    onPageCountChange(null);
   }, [document]);
 
   useEffect(() => {
@@ -119,6 +122,7 @@ export function DocumentViewer({
               onSelectRegion={onSelectRegion}
               onChangeRegion={onChangeRegion}
               onFinishDrawing={onFinishDrawing}
+              onPageCountChange={onPageCountChange}
             />
           </Suspense>
         ) : document.viewType === 'image' ? (
@@ -133,6 +137,7 @@ export function DocumentViewer({
             onSelectRegion={onSelectRegion}
             onChangeRegion={onChangeRegion}
             onFinishDrawing={onFinishDrawing}
+            onPageCountChange={onPageCountChange}
           />
         ) : (
           <div className="viewer-state viewer-state--error">

@@ -1,3 +1,7 @@
+use super::document_templates::{
+    BindDocumentTemplateInput, CreateDocumentTemplateInput, DocumentTemplate,
+    DocumentTemplateSummary, UpdateDocumentTemplateInput,
+};
 use super::field_catalog::{
     CreateFieldDefinitionInput, FieldDefinitionRecord, UpdateFieldDefinitionFormatInput,
 };
@@ -119,6 +123,75 @@ pub async fn update_field_definition_format(
 }
 
 fn command_error_from_catalog(error: super::field_catalog::CatalogError) -> CommandError {
+    CommandError::with_code(error.message(), error.detail(), error.code())
+}
+
+#[tauri::command]
+pub async fn list_document_templates(
+    app: AppHandle,
+) -> Result<Vec<DocumentTemplateSummary>, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::document_templates::list_document_templates(&directory)
+        .await
+        .map_err(command_error_from_template)
+}
+
+#[tauri::command]
+pub async fn get_document_template(
+    app: AppHandle,
+    id: String,
+) -> Result<Option<DocumentTemplate>, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::document_templates::get_document_template(&directory, id)
+        .await
+        .map_err(command_error_from_template)
+}
+
+#[tauri::command]
+pub async fn find_document_template_by_fingerprint(
+    app: AppHandle,
+    fingerprint: String,
+) -> Result<Option<DocumentTemplate>, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::document_templates::find_document_template_by_fingerprint(&directory, fingerprint)
+        .await
+        .map_err(command_error_from_template)
+}
+
+#[tauri::command]
+pub async fn create_document_template(
+    app: AppHandle,
+    input: CreateDocumentTemplateInput,
+) -> Result<DocumentTemplate, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::document_templates::create_document_template(&directory, input)
+        .await
+        .map_err(command_error_from_template)
+}
+
+#[tauri::command]
+pub async fn update_document_template(
+    app: AppHandle,
+    input: UpdateDocumentTemplateInput,
+) -> Result<DocumentTemplate, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::document_templates::update_document_template(&directory, input)
+        .await
+        .map_err(command_error_from_template)
+}
+
+#[tauri::command]
+pub async fn bind_document_template(
+    app: AppHandle,
+    input: BindDocumentTemplateInput,
+) -> Result<DocumentTemplate, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::document_templates::bind_document_template(&directory, input)
+        .await
+        .map_err(command_error_from_template)
+}
+
+fn command_error_from_template(error: super::document_templates::TemplateError) -> CommandError {
     CommandError::with_code(error.message(), error.detail(), error.code())
 }
 

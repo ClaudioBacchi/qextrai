@@ -10,6 +10,12 @@ pub fn run() {
             database::commands::list_field_definitions,
             database::commands::create_field_definition,
             database::commands::update_field_definition_format,
+            database::commands::list_document_templates,
+            database::commands::get_document_template,
+            database::commands::find_document_template_by_fingerprint,
+            database::commands::create_document_template,
+            database::commands::update_document_template,
+            database::commands::bind_document_template,
         ])
         .run(tauri::generate_context!())
         .expect("error while running qExtrai");

@@ -1162,6 +1162,94 @@
   font-weight: 800;
 }
 
+.template-bar {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.template-bar__status {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.template-bar__status strong,
+.template-bar__status span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-bar__status strong {
+  color: var(--color-primary-strong);
+}
+
+.template-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.template-dialog {
+  width: min(560px, 100%);
+}
+
+.template-dialog__field {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0;
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.template-dialog__field input {
+  min-height: 42px;
+  padding: 10px 12px;
+  color: var(--color-ink);
+  font: inherit;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: #f8fbff;
+}
+
+.template-options {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  margin-top: 14px;
+  overflow: auto;
+}
+
+.template-option {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+  color: var(--color-ink);
+  text-align: left;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: #f8fbff;
+}
+
+.template-option strong,
+.template-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.template-option span {
+  color: var(--color-muted);
+  font-weight: 800;
+}
+
 .toast {
   position: fixed;
   right: 28px;
@@ -1187,6 +1275,7 @@
 }
 
 .confirm-dialog {
+  position: relative;
   width: min(460px, 100%);
   padding: 22px;
   border: 1px solid rgba(220, 229, 246, 0.95);
@@ -1213,6 +1302,24 @@
   justify-content: flex-end;
   gap: 10px;
   margin-top: 20px;
+}
+
+.unsaved-layout-dialog {
+  width: min(560px, 100%);
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--color-primary-strong);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: #f6f9ff;
 }
 
 .preferences-page {

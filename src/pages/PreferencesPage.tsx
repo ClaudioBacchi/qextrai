@@ -8,9 +8,17 @@ type PreferencesPageProps = {
   onBack: () => void;
   catalogStatus: FieldCatalogStatus;
   catalogCount: number;
+  templateStatus: FieldCatalogStatus;
+  templateCount: number;
 };
 
-export function PreferencesPage({ onBack, catalogStatus, catalogCount }: PreferencesPageProps) {
+export function PreferencesPage({
+  onBack,
+  catalogStatus,
+  catalogCount,
+  templateStatus,
+  templateCount,
+}: PreferencesPageProps) {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -44,7 +52,12 @@ export function PreferencesPage({ onBack, catalogStatus, catalogCount }: Prefere
               </label>
             </PreferenceSection>
 
-            <DatabaseSettingsSection catalogStatus={catalogStatus} catalogCount={catalogCount} />
+            <DatabaseSettingsSection
+              catalogStatus={catalogStatus}
+              catalogCount={catalogCount}
+              templateStatus={templateStatus}
+              templateCount={templateCount}
+            />
 
             <PreferenceSection title="Esportazione" icon={<Save aria-hidden="true" size={21} />}>
               <Field label="Formato predefinito" value="Excel" />

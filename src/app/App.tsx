@@ -10,6 +10,11 @@ import {
   type FieldCatalogRepository,
   type FieldCatalogStatus,
 } from '../domain/fieldCatalogRepository';
+import {
+  createDocumentTemplateRepository,
+  type DocumentTemplateRepository,
+} from '../domain/documentTemplateRepository';
+import type { DocumentTemplateSummary } from '../domain/documentTemplates';
 import { isTauriRuntime } from '../services/tauriRuntime';
 
 export type AppView = 'home' | 'workspace' | 'preferences';
@@ -20,10 +25,13 @@ export function App() {
   const [fieldCatalog, setFieldCatalog] = useState<FieldDefinition[]>([]);
   const [catalogStatus, setCatalogStatus] = useState<FieldCatalogStatus>('loading');
   const [catalogMessage, setCatalogMessage] = useState('');
+  const [templateSummaries, setTemplateSummaries] = useState<DocumentTemplateSummary[]>([]);
+  const [templateStatus, setTemplateStatus] = useState<FieldCatalogStatus>('loading');
   const [documentFields, setDocumentFields] = useState<DocumentField[]>([]);
   const [regions, setRegions] = useState<DocumentRegion[]>([]);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const catalogRepository = useMemo<FieldCatalogRepository>(() => createFieldCatalogRepository(), []);
+  const templateRepository = useMemo<DocumentTemplateRepository>(() => createDocumentTemplateRepository(), []);
 
   const refreshCatalog = async (mode: 'initial' | 'refresh' = 'refresh') => {
     const desktop = isTauriRuntime();
@@ -45,10 +53,24 @@ export function App() {
 
   useEffect(() => {
     void refreshCatalog('initial');
+    void refreshTemplates();
   }, []);
+
+  const refreshTemplates = async () => {
+    const desktop = isTauriRuntime();
+    setTemplateStatus((current) => (!desktop ? 'temporary' : current === 'ready' ? 'refreshing' : 'loading'));
+    try {
+      const summaries = await templateRepository.list();
+      setTemplateSummaries(summaries);
+      setTemplateStatus(desktop ? 'ready' : 'temporary');
+    } catch {
+      setTemplateStatus(templateSummaries.length > 0 ? 'stale' : 'unavailable');
+    }
+  };
 
   const openWorkspace = (file: File) => {
     void refreshCatalog('refresh');
+    void refreshTemplates();
     setDocumentFile(createLocalDocument(file));
     setDocumentFields([]);
     setRegions([]);
@@ -66,6 +88,7 @@ export function App() {
 
   const replaceDocument = (file: File) => {
     void refreshCatalog('refresh');
+    void refreshTemplates();
     setDocumentFile(createLocalDocument(file));
     setDocumentFields([]);
     setRegions([]);
@@ -92,6 +115,10 @@ export function App() {
           catalogMessage={catalogMessage}
           catalogRepository={catalogRepository}
           onRefreshCatalog={() => refreshCatalog('refresh')}
+          templateRepository={templateRepository}
+          templateSummaries={templateSummaries}
+          templateStatus={templateStatus}
+          onRefreshTemplates={refreshTemplates}
           onDocumentFieldsChange={setDocumentFields}
           onRegionsChange={setRegions}
           onSelectRegion={setSelectedRegionId}
@@ -105,6 +132,8 @@ export function App() {
           onBack={() => setView(documentFile ? 'workspace' : 'home')}
           catalogStatus={catalogStatus}
           catalogCount={fieldCatalog.length}
+          templateStatus={templateStatus}
+          templateCount={templateSummaries.length}
         />
       )}
     </div>

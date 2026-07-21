@@ -1,4 +1,5 @@
-import { CheckCircle2, Crosshair, FilePlus2, Search, ScanSearch } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Crosshair, FilePlus2, Search, ScanSearch } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { DocumentRegion } from '../document/documentGeometry';
 import type { DocumentField, FieldDefinition } from '../../domain/fieldTypes';
@@ -32,6 +33,7 @@ type DocumentFieldsPanelProps = {
   catalogStatus: FieldCatalogStatus;
   catalogMessage: string;
   editorError: string;
+  templateBar: ReactNode;
   editor: EditorState;
   onToggleDrawing: () => void;
   onSelectRegion: (id: string) => void;
@@ -64,6 +66,7 @@ export function DocumentFieldsPanel({
   catalogStatus,
   catalogMessage,
   editorError,
+  templateBar,
   editor,
   onToggleDrawing,
   onSelectRegion,
@@ -254,10 +257,7 @@ export function DocumentFieldsPanel({
       </div>
       <footer className="fields-footer">
         <span>{footerText}</span>
-        <button className="button button--primary" type="button" disabled title={unavailableTitle}>
-          <CheckCircle2 aria-hidden="true" size={18} />
-          Conferma documento
-        </button>
+        {templateBar}
       </footer>
     </section>
   );
