@@ -20,6 +20,8 @@ pub fn run() {
             database::commands::create_document_template,
             database::commands::update_document_template,
             database::commands::bind_document_template,
+            database::commands::load_document_values,
+            database::commands::save_document_values,
             pdf_extraction::stage_pdf_document,
             pdf_extraction::release_staged_document,
             pdf_extraction::extract_pdf_regions,

@@ -230,11 +230,6 @@ pub async fn update_document_template(
         return Err(TemplateError::RevisionConflict);
     }
 
-    sqlx::query("DELETE FROM qextrai.document_template_fields WHERE template_id = $1")
-        .bind(&input.id)
-        .execute(&mut *tx)
-        .await
-        .map_err(classify_sqlx_error)?;
     replace_template_layout(&mut tx, &input.id, &input.fields).await?;
     tx.commit().await.map_err(classify_sqlx_error)?;
     load_template(&pool, &input.id).await?.ok_or_else(|| {
@@ -287,11 +282,40 @@ async fn replace_template_layout(
     template_id: &str,
     fields: &[DocumentTemplateFieldInput],
 ) -> Result<(), TemplateError> {
+    let field_ids = fields
+        .iter()
+        .map(|field| field.id.clone())
+        .collect::<Vec<_>>();
+
+    sqlx::query(
+        "DELETE FROM qextrai.document_template_regions r
+         USING qextrai.document_template_fields f
+         WHERE r.template_field_id = f.id AND f.template_id = $1",
+    )
+    .bind(template_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(classify_sqlx_error)?;
+
+    sqlx::query(
+        "DELETE FROM qextrai.document_template_fields
+         WHERE template_id = $1 AND NOT (id = ANY($2))",
+    )
+    .bind(template_id)
+    .bind(&field_ids)
+    .execute(&mut **tx)
+    .await
+    .map_err(classify_sqlx_error)?;
+
     for field in fields {
         sqlx::query(
             "INSERT INTO qextrai.document_template_fields
                (id, template_id, field_definition_id, sort_order)
-             VALUES ($1, $2, $3, $4)",
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (id)
+             DO UPDATE SET template_id = EXCLUDED.template_id,
+                           field_definition_id = EXCLUDED.field_definition_id,
+                           sort_order = EXCLUDED.sort_order",
         )
         .bind(&field.id)
         .bind(template_id)

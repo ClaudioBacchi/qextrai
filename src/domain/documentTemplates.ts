@@ -80,8 +80,9 @@ export function templateFromLayout({
     .map((field, index) => {
       const definition = catalog.find((item) => item.id === field.definitionId);
       if (!definition) return null;
+      const templateFieldId = field.templateFieldId ?? `${templateId}-field-${index}`;
       return {
-        id: `${templateId}-field-${index}`,
+        id: templateFieldId,
         fieldDefinitionId: definition.id,
         sortOrder: index,
         regions: field.regionIds
@@ -89,7 +90,7 @@ export function templateFromLayout({
             const region = regions.find((item) => item.id === regionId);
             if (!region) return null;
             return {
-              id: `${templateId}-field-${index}-region-${regionIndex}`,
+              id: `${templateFieldId}-region-${regionIndex}`,
               pageNumber: region.pageNumber,
               x: region.rect.x,
               y: region.rect.y,
@@ -127,6 +128,7 @@ export function applyTemplateToDocument(template: DocumentTemplate, availablePag
     });
     fields.push({
       id: `${template.id}-field-${fieldIndex}`,
+      templateFieldId: templateField.id,
       definitionId: templateField.fieldDefinitionId,
       regionIds,
     });

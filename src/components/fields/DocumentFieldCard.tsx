@@ -46,6 +46,9 @@ export function DocumentFieldCard({
   const panelId = `field-row-panel-${field.id}`;
   const areaText = regions.length === 1 ? '1 area' : `${regions.length} aree`;
   const valueStatus = valueStatusLabel(value);
+  const persistenceStatus = value && (value.status === 'ready' || value.status === 'empty')
+    ? value.saved ? 'Salvato' : 'Da salvare'
+    : 'Non salvato';
   const valueText = value?.editedValue || valueStatus;
   const selectedRegionBelongsToField = Boolean(selectedRegionId && field.regionIds.includes(selectedRegionId));
   const sortedRegions = [...regions].sort(
@@ -90,6 +93,10 @@ export function DocumentFieldCard({
             <div>
               <span>Stato</span>
               <strong>{valueStatus}</strong>
+            </div>
+            <div>
+              <span>Dati</span>
+              <strong>{persistenceStatus}</strong>
             </div>
           </div>
           {definition.kind === 'single' ? (

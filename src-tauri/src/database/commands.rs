@@ -2,6 +2,7 @@ use super::document_templates::{
     BindDocumentTemplateInput, CreateDocumentTemplateInput, DocumentTemplate,
     DocumentTemplateSummary, UpdateDocumentTemplateInput,
 };
+use super::document_values::{DocumentValueSet, LoadDocumentValuesInput, SaveDocumentValuesInput};
 use super::field_catalog::{
     CreateFieldDefinitionInput, FieldDefinitionRecord, UpdateFieldDefinitionFormatInput,
 };
@@ -192,6 +193,34 @@ pub async fn bind_document_template(
 }
 
 fn command_error_from_template(error: super::document_templates::TemplateError) -> CommandError {
+    CommandError::with_code(error.message(), error.detail(), error.code())
+}
+
+#[tauri::command]
+pub async fn load_document_values(
+    app: AppHandle,
+    input: LoadDocumentValuesInput,
+) -> Result<Option<DocumentValueSet>, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::document_values::load_document_values(&directory, input)
+        .await
+        .map_err(command_error_from_document_values)
+}
+
+#[tauri::command]
+pub async fn save_document_values(
+    app: AppHandle,
+    input: SaveDocumentValuesInput,
+) -> Result<DocumentValueSet, CommandError> {
+    let directory = app_local_data_dir(&app)?;
+    super::document_values::save_document_values(&directory, input)
+        .await
+        .map_err(command_error_from_document_values)
+}
+
+fn command_error_from_document_values(
+    error: super::document_values::DocumentValuesError,
+) -> CommandError {
     CommandError::with_code(error.message(), error.detail(), error.code())
 }
 

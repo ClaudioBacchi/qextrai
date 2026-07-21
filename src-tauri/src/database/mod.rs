@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod connection_manager;
 pub mod document_templates;
+pub mod document_values;
 pub mod dpapi;
 pub mod field_catalog;
 pub mod models;

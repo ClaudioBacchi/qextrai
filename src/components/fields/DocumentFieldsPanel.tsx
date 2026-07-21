@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Crosshair, FilePlus2, Search, ScanSearch, TextSearch } from 'lucide-react';
+import { Crosshair, FilePlus2, Save, Search, ScanSearch, TextSearch } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { DocumentRegion } from '../document/documentGeometry';
 import type { DocumentField, FieldDefinition } from '../../domain/fieldTypes';
@@ -39,7 +39,11 @@ type DocumentFieldsPanelProps = {
   extractionMessage: string;
   extractionBusy: boolean;
   canExtractData: boolean;
+  valuesDirty: boolean;
+  valuesSaving: boolean;
+  canSaveData: boolean;
   onExtractData: () => void;
+  onSaveData: () => void;
   onEditFieldValue: (fieldId: string, value: string) => void;
   editor: EditorState;
   onToggleDrawing: () => void;
@@ -78,7 +82,11 @@ export function DocumentFieldsPanel({
   extractionMessage,
   extractionBusy,
   canExtractData,
+  valuesDirty,
+  valuesSaving,
+  canSaveData,
   onExtractData,
+  onSaveData,
   onEditFieldValue,
   editor,
   onToggleDrawing,
@@ -119,6 +127,8 @@ export function DocumentFieldsPanel({
   const showDocumentTools = shouldShowDocumentTools(editor);
   const showDocumentFieldList = shouldShowDocumentFieldList(editor);
   const catalogAllowsEditing = catalogStatus === 'ready' || catalogStatus === 'temporary';
+  const hasValues = Object.keys(fieldValues).length > 0;
+  const valuesStateText = valuesDirty ? 'Da salvare.' : hasValues ? 'Salvato.' : '';
   const addFieldTitle = !canAddRegion
     ? 'Apri un documento prima di aggiungere un campo'
     : !catalogAllowsEditing
@@ -161,6 +171,15 @@ export function DocumentFieldsPanel({
             >
               <TextSearch aria-hidden="true" size={16} />
               {extractionBusy ? 'Lettura campi...' : 'Estrai dati'}
+            </button>
+            <button
+              className="button button--secondary button--compact"
+              type="button"
+              disabled={!canSaveData}
+              onClick={onSaveData}
+            >
+              <Save aria-hidden="true" size={16} />
+              {valuesSaving ? 'Salvataggio...' : 'Salva dati'}
             </button>
             <button
               className={`button button--secondary${drawingMode ? ' button--active' : ''}`}
@@ -220,7 +239,7 @@ export function DocumentFieldsPanel({
         ) : null}
         {extractionMessage ? (
           <div className="field-editor-note" role="status">
-            {extractionMessage}
+            {[extractionMessage, valuesStateText].filter(Boolean).join(' ')}
           </div>
         ) : null}
         {editor && editor.type !== 'format' ? (

@@ -19,6 +19,7 @@ export type FieldDefinition = {
 
 export type DocumentField = {
   id: string;
+  templateFieldId?: string;
   definitionId: string;
   regionIds: string[];
 };

@@ -24,15 +24,21 @@ Un operatore puo salvare il documento corrente come template, aggiornare un temp
 
 In modalità browser il catalogo resta temporaneo in memoria. Se il server PostgreSQL non è disponibile in desktop, qExtrai continua ad aprire documenti e mantenere il catalogo già visibile, ma impedisce nuove modifiche persistenti finché il catalogo condiviso non torna disponibile.
 
-In questa fase non vengono persistiti i documenti originali, i valori estratti, OCR, estrazioni o esportazioni. Sono persistiti solo catalogo campi condiviso, template e associazioni documento-template.
+I valori del documento vengono salvati in PostgreSQL solo su comando esplicito `Salva dati`. qExtrai identifica il documento con la sola impronta SHA-256 del file, senza archiviare il PDF originale; per ogni coppia documento-template mantiene uno snapshot corrente dei valori dei campi `single`, con origine `pdfText` o `manual` e controllo di revisione ottimistico.
+
+Il salvataggio usa gli identificativi stabili dei campi template (`templateFieldId`), non gli ID temporanei del layout nel frontend. I valori salvati vengono ricaricati quando si riapre lo stesso PDF e il template associato ha la stessa revisione usata al salvataggio; se la revisione del template e cambiata, i valori precedenti non vengono mostrati e l'operatore deve rieseguire l'estrazione prima di salvare di nuovo.
+
+In caso di conflitto durante `Salva dati`, qExtrai resta nel documento, conserva le modifiche locali e chiede di ricaricare i dati prima di salvare. In modalita browser il salvataggio valori non e disponibile.
+
+In questa fase non vengono persistiti documenti originali, OCR, immagini, estrazioni LLM, elenchi, tabelle, esportazioni o storico versioni dei valori.
 
 ## Estrazione dati locale
 
 L'app desktop puo leggere testo dai PDF nativi usando esclusivamente le aree definite dall'operatore nel template o nel layout corrente. Il frontend trasferisce il PDF al backend Tauri come body binario raw, senza Base64 o array JSON; il backend calcola l'impronta SHA-256, crea un file temporaneo di sessione e restituisce solo token opaco, fingerprint e numero pagine.
 
-Il comando `Estrai dati` supporta al momento solo campi `single`. Per ogni area inviata, il backend apre il PDF locale e legge il testo circoscritto al rettangolo ricevuto; non legge l'intera pagina per cercare valori e non usa PDF.js per l'estrazione testuale. I valori vengono mostrati nel pannello campi, sono modificabili manualmente e restano solo nello stato del documento corrente.
+Il comando `Estrai dati` supporta al momento solo campi `single`. Per ogni area inviata, il backend apre il PDF locale e legge il testo circoscritto al rettangolo ricevuto; non legge l'intera pagina per cercare valori e non usa PDF.js per l'estrazione testuale. I valori vengono mostrati nel pannello campi, sono modificabili manualmente e diventano `Da salvare` finche non viene premuto `Salva dati`.
 
-Non sono ancora disponibili OCR, immagini o PDF scannerizzati, LLM/API esterne, campi elenco, tabelle, persistenza dei valori ed esportazione. In browser il viewer continua a funzionare, ma l'estrazione mostra che la funzione e disponibile solo nell'app desktop. I PDF temporanei vengono eliminati quando il documento viene sostituito, quando il token viene rilasciato, alla chiusura dell'app o in caso di errore di staging.
+Non sono ancora disponibili OCR, immagini o PDF scannerizzati, LLM/API esterne, campi elenco, tabelle ed esportazione. In browser il viewer continua a funzionare, ma estrazione e salvataggio dati mostrano che la funzione e disponibile solo nell'app desktop. I PDF temporanei vengono eliminati quando il documento viene sostituito, quando il token viene rilasciato, alla chiusura dell'app o in caso di errore di staging.
 
 ## Comandi
 

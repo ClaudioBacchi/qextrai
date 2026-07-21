@@ -1,4 +1,5 @@
 import type { DocumentRegion, NormalizedRect } from '../components/document/documentGeometry';
+import type { PersistedDocumentFieldValue } from './documentValuesRepository';
 import type { DocumentField, FieldDefinition } from './fieldTypes';
 
 export type DocumentFieldValueSource = 'pdfText' | 'manual';
@@ -10,6 +11,7 @@ export type DocumentFieldValue = {
   editedValue: string;
   source: DocumentFieldValueSource;
   status: DocumentFieldValueStatus;
+  saved?: boolean;
 };
 
 export type DocumentFieldValues = Record<string, DocumentFieldValue>;
@@ -47,6 +49,7 @@ export function markFieldsReading(values: DocumentFieldValues, fieldIds: string[
       editedValue: previous?.editedValue ?? '',
       source: previous?.source ?? 'pdfText',
       status: 'reading',
+      saved: previous?.saved,
     };
   });
   return next;
@@ -70,6 +73,7 @@ export function applyRegionExtractionResults(
       editedValue: rawValue,
       source: 'pdfText',
       status: rawValue ? 'ready' : 'empty',
+      saved: false,
     };
   });
   return next;
@@ -85,6 +89,7 @@ export function markFieldsExtractionError(values: DocumentFieldValues, fieldIds:
       editedValue: previous?.editedValue ?? '',
       source: previous?.source ?? 'pdfText',
       status: 'error',
+      saved: previous?.saved,
     };
   });
   return next;
@@ -105,6 +110,7 @@ export function editFieldValue(values: DocumentFieldValues, fieldId: string, edi
       editedValue,
       source: 'manual',
       status: 'ready',
+      saved: false,
     },
   };
 }
@@ -120,4 +126,52 @@ export function invalidateFieldValues(values: DocumentFieldValues, fieldIds: str
 
 export function rectEquals(first: NormalizedRect, second: NormalizedRect) {
   return first.x === second.x && first.y === second.y && first.width === second.width && first.height === second.height;
+}
+
+export function loadPersistedFieldValues(
+  fields: DocumentField[],
+  values: PersistedDocumentFieldValue[],
+): DocumentFieldValues {
+  const valuesByTemplateField = new Map(values.map((value) => [value.templateFieldId, value]));
+  return fields.reduce<DocumentFieldValues>((next, field) => {
+    if (!field.templateFieldId) return next;
+    const value = valuesByTemplateField.get(field.templateFieldId);
+    if (!value) return next;
+    next[field.id] = {
+      documentFieldId: field.id,
+      rawValue: value.rawValue,
+      editedValue: value.editedValue,
+      source: value.source,
+      status: value.status,
+      saved: true,
+    };
+    return next;
+  }, {});
+}
+
+export function markPersistedFieldValuesSaved(values: DocumentFieldValues): DocumentFieldValues {
+  return Object.fromEntries(
+    Object.entries(values).map(([fieldId, value]) => [
+      fieldId,
+      value.status === 'ready' || value.status === 'empty' ? { ...value, saved: true } : value,
+    ]),
+  );
+}
+
+export function buildPersistedFieldValues(
+  fields: DocumentField[],
+  values: DocumentFieldValues,
+): PersistedDocumentFieldValue[] {
+  return fields.flatMap((field) => {
+    const value = values[field.id];
+    if (!field.templateFieldId || !value || (value.status !== 'ready' && value.status !== 'empty')) return [];
+    return [{
+      templateFieldId: field.templateFieldId,
+      fieldDefinitionId: field.definitionId,
+      rawValue: value.rawValue,
+      editedValue: value.editedValue,
+      source: value.source,
+      status: value.status,
+    }];
+  });
 }

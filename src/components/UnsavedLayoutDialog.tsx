@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import type { UnsavedLayoutWarning } from '../domain/unsavedLayoutGuard';
+type WorkspaceWarning = {
+  title: string;
+  description: string;
+  saveActionLabel: string;
+};
 
 type UnsavedLayoutDialogProps = {
-  warning: UnsavedLayoutWarning;
+  warning: WorkspaceWarning;
   onStay: () => void;
   onDiscard: () => void;
   onSaveAndContinue: () => Promise<boolean> | boolean;

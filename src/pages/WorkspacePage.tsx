@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Save, Upload } from 'lucide-react';
+import { RefreshCw, Save, Upload, X } from 'lucide-react';
 import type { LocalDocument } from '../app/documentTypes';
 import { AppHeader } from '../components/AppHeader';
 import { UnsavedFieldDialog } from '../components/UnsavedFieldDialog';
@@ -28,6 +28,7 @@ import type {
 import { getUnsavedLayoutWarning } from '../domain/unsavedLayoutGuard';
 import {
   applyRegionExtractionResults,
+  buildPersistedFieldValues,
   editFieldValue,
   hasManualCorrections,
   invalidateFieldValues,
@@ -37,6 +38,24 @@ import {
   rectEquals,
   type DocumentFieldValues,
 } from '../domain/documentFieldValues';
+import {
+  applyLoadedDocumentValuesSnapshot,
+  applySavedDocumentValuesSnapshot,
+  buildDocumentValuesLoadKey,
+  documentValuesLoadKeyId,
+  loadKeyMatches,
+  type DocumentValuesLoadKey,
+} from '../domain/documentValuesWorkflow';
+import {
+  fieldDeletionNeedsConfirmation,
+  isTextEditingElement,
+  type FieldDeletionCommand,
+} from '../domain/fieldDeletionGuard';
+import {
+  DocumentValuesError,
+  type DocumentValueSet,
+  type DocumentValuesRepository,
+} from '../domain/documentValuesRepository';
 import {
   commitDraftRegion,
   discardDraftRegion,
@@ -72,6 +91,7 @@ type WorkspacePageProps = {
   onRefreshCatalog: () => Promise<void>;
   templateRepository: DocumentTemplateRepository;
   textExtractionService: DocumentTextExtractionService;
+  documentValuesRepository: DocumentValuesRepository;
   templateSummaries: DocumentTemplateSummary[];
   templateStatus: FieldCatalogStatus;
   onRefreshTemplates: () => Promise<void>;
@@ -107,6 +127,7 @@ export function WorkspacePage({
   onRefreshCatalog,
   templateRepository,
   textExtractionService,
+  documentValuesRepository,
   templateSummaries,
   templateStatus,
   onRefreshTemplates,
@@ -137,9 +158,20 @@ export function WorkspacePage({
   const [stageStatus, setStageStatus] = useState<ExtractionStageStatus>('idle');
   const [extractionMessage, setExtractionMessage] = useState('');
   const [fieldValues, setFieldValues] = useState<DocumentFieldValues>({});
+  const [valueSetRevision, setValueSetRevision] = useState<number | null>(null);
+  const [valuesDirty, setValuesDirty] = useState(false);
+  const [valuesMessage, setValuesMessage] = useState('');
+  const [valuesSaving, setValuesSaving] = useState(false);
+  const [valuesConflictOpen, setValuesConflictOpen] = useState(false);
+  const [confirmReloadValues, setConfirmReloadValues] = useState(false);
+  const [valuesReloading, setValuesReloading] = useState(false);
+  const [valuesReloadError, setValuesReloadError] = useState('');
   const [extractionBusy, setExtractionBusy] = useState(false);
   const [confirmReread, setConfirmReread] = useState(false);
+  const [pendingFieldDeletion, setPendingFieldDeletion] = useState<FieldDeletionCommand | null>(null);
   const stageRequestRef = useRef(0);
+  const documentInstanceRef = useRef(0);
+  const valuesLoadRef = useRef<{ sequence: number; keyId: string }>({ sequence: 0, keyId: '' });
   const stagedTokenRef = useRef<string | null>(null);
   const canAddRegion = document?.viewType === 'pdf' || document?.viewType === 'image';
   const visibleRegions = useMemo(() => displayRegions(regions, draftRegion), [regions, draftRegion]);
@@ -154,13 +186,43 @@ export function WorkspacePage({
   const readableFields = readableSingleFields(documentFields, catalog, regions);
   const canExtractData =
     document?.viewType === 'pdf' && stageStatus === 'ready' && Boolean(stagedDocument) && readableFields.length > 0;
+  const canSaveData =
+    documentValuesRepository.isAvailable() &&
+    Boolean(fingerprint && activeTemplate && !templateDirty && valuesDirty && !valuesSaving);
+  const hasProtectedValues = valuesDirty && Boolean(activeTemplate);
+  const showCombinedUnsavedDialog = Boolean(pendingLayoutAction && !valuesConflictOpen && hasTemplateChanges && hasProtectedValues);
+  const showUnsavedValuesDialog = Boolean(pendingLayoutAction && !valuesConflictOpen && !showCombinedUnsavedDialog && hasProtectedValues);
+  const hasOpenDialog = Boolean(
+    pendingFieldDeletion ||
+    pendingNavigation ||
+    pendingLayoutAction ||
+    confirmReloadValues ||
+    valuesConflictOpen ||
+    confirmReread ||
+    templateDialog,
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (pendingFieldDeletion) {
+          event.preventDefault();
+          cancelFieldDeletion();
+          return;
+        }
         if (pendingLayoutAction) {
           event.preventDefault();
           stayOnWorkspace();
+          return;
+        }
+        if (confirmReloadValues) {
+          event.preventDefault();
+          if (!valuesReloading) setConfirmReloadValues(false);
+          return;
+        }
+        if (valuesConflictOpen) {
+          event.preventDefault();
+          if (!valuesReloading) setValuesConflictOpen(false);
           return;
         }
         if (confirmReread) {
@@ -191,9 +253,13 @@ export function WorkspacePage({
       }
 
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedRegionId) {
-        if (event.key === 'Backspace' && isEditingText(event.target)) return;
+        if (isEditingText(event.target)) return;
+        if (hasOpenDialog) {
+          event.preventDefault();
+          return;
+        }
         event.preventDefault();
-        deleteRegion(selectedRegionId);
+        requestDeleteRegion(selectedRegionId);
       }
     };
 
@@ -208,16 +274,67 @@ export function WorkspacePage({
     documentFields,
     draftRegion,
     templateDialog,
+    pendingFieldDeletion,
     pendingLayoutAction,
     confirmReread,
+    confirmReloadValues,
+    valuesConflictOpen,
+    valuesReloading,
+    fieldValues,
+    hasOpenDialog,
   ]);
 
   useEffect(() => {
+    documentInstanceRef.current += 1;
     setFieldValues({});
+    setValueSetRevision(null);
+    setValuesDirty(false);
+    setValuesMessage('');
+    setValuesConflictOpen(false);
+    setConfirmReloadValues(false);
+    setValuesReloadError('');
+    setPendingFieldDeletion(null);
+    valuesLoadRef.current = { sequence: valuesLoadRef.current.sequence + 1, keyId: '' };
     setExtractionBusy(false);
     setConfirmReread(false);
     setExtractionMessage('');
   }, [document]);
+
+  useEffect(() => {
+    if (templateDirty) return;
+    const loadKey = buildDocumentValuesLoadKey({
+      documentInstanceId: documentInstanceRef.current,
+      fingerprint,
+      template: activeTemplate,
+      fields: documentFields,
+    });
+    if (!loadKey || !activeTemplate) return;
+    const template = activeTemplate;
+    const fieldsSnapshot = documentFields;
+    const keyId = documentValuesLoadKeyId(loadKey);
+    if (valuesLoadRef.current.keyId === keyId) return;
+
+    let cancelled = false;
+    const sequence = valuesLoadRef.current.sequence + 1;
+    valuesLoadRef.current = { sequence, keyId };
+    setValuesMessage(documentValuesRepository.isAvailable() ? 'Caricamento dati documento...' : '');
+    documentValuesRepository
+      .load({ fingerprint: loadKey.fingerprint, templateId: loadKey.templateId })
+      .then((valueSet) => {
+        if (cancelled) return;
+        if (valuesLoadRef.current.sequence !== sequence || valuesLoadRef.current.keyId !== keyId) return;
+        applyLoadedDocumentValues(valueSet, template, fieldsSnapshot);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        if (valuesLoadRef.current.sequence !== sequence || valuesLoadRef.current.keyId !== keyId) return;
+        setValuesMessage(messageForDocumentValuesError(error, 'Dati documento non disponibili.'));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTemplate, documentValuesRepository, documentFields, fingerprint, templateDirty]);
 
   useEffect(() => {
     const requestId = stageRequestRef.current + 1;
@@ -339,7 +456,7 @@ export function WorkspacePage({
   };
 
   const requestProtectedAction = (action: ProtectedWorkspaceAction) => {
-    if (unsavedLayoutWarning) {
+    if (unsavedLayoutWarning || hasProtectedValues) {
       setPendingLayoutAction(action);
       return;
     }
@@ -409,6 +526,26 @@ export function WorkspacePage({
     const action = pendingLayoutAction;
     setPendingLayoutAction(null);
     if (action) void completeProtectedAction(action);
+  };
+
+  const saveValuesAndContinue = async () => {
+    if (!pendingLayoutAction) return false;
+    const saved = await saveDocumentValues();
+    if (!saved) return false;
+    const action = pendingLayoutAction;
+    setPendingLayoutAction(null);
+    await completeProtectedAction(action);
+    return true;
+  };
+
+  const saveTemplateAndStay = async () => {
+    if (!pendingLayoutAction || !activeTemplate) return false;
+    const saved = await saveTemplateChanges();
+    if (!saved) return false;
+    setPendingLayoutAction(null);
+    setValuesDirty(false);
+    setValuesMessage('Il template è stato aggiornato. Riesegui l’estrazione prima di salvare i dati.');
+    return true;
   };
 
   const saveLayoutAndContinue = async () => {
@@ -573,6 +710,42 @@ export function WorkspacePage({
     markTemplateDirty();
   };
 
+  const requestDeleteRegion = (regionId: string) => {
+    requestFieldDeletion({ type: 'region', regionId });
+  };
+
+  const requestDeleteField = (fieldId: string) => {
+    requestFieldDeletion({ type: 'field', fieldId });
+  };
+
+  const requestFieldDeletion = (command: FieldDeletionCommand) => {
+    if (hasOpenDialog) return;
+    if (fieldDeletionNeedsConfirmation(command, documentFields, fieldValues)) {
+      setPendingFieldDeletion(command);
+      return;
+    }
+    deleteFieldCommand(command);
+  };
+
+  const cancelFieldDeletion = () => {
+    setPendingFieldDeletion(null);
+  };
+
+  const confirmFieldDeletion = () => {
+    const command = pendingFieldDeletion;
+    if (!command) return;
+    setPendingFieldDeletion(null);
+    deleteFieldCommand(command);
+  };
+
+  const deleteFieldCommand = (command: FieldDeletionCommand) => {
+    if (command.type === 'region') {
+      deleteRegion(command.regionId);
+      return;
+    }
+    deleteField(command.fieldId);
+  };
+
   const applyTemplate = (template: DocumentTemplate, availablePageCount: number) => {
     const layout = applyTemplateToDocument(template, availablePageCount);
     onRegionsChange(layout.regions);
@@ -583,6 +756,14 @@ export function WorkspacePage({
     setHiddenTemplateRegionCount(layout.hiddenRegionCount);
     setFingerprintStatus('');
     setFieldValues({});
+    setValueSetRevision(null);
+    setValuesDirty(false);
+    setValuesMessage('');
+    setValuesConflictOpen(false);
+    setConfirmReloadValues(false);
+    setValuesReloadError('');
+    setPendingFieldDeletion(null);
+    valuesLoadRef.current = { sequence: valuesLoadRef.current.sequence + 1, keyId: '' };
   };
 
   const saveAsTemplate = async () => {
@@ -640,6 +821,97 @@ export function WorkspacePage({
     }
   };
 
+  const applyLoadedDocumentValues = (
+    valueSet: DocumentValueSet | null,
+    template: DocumentTemplate,
+    fields: DocumentField[],
+  ) => {
+    const state = applyLoadedDocumentValuesSnapshot({ fields, template, valueSet });
+    setFieldValues(state.values);
+    setValueSetRevision(state.valueSetRevision);
+    setValuesDirty(state.dirty);
+    setValuesMessage(state.message);
+  };
+
+  const saveDocumentValues = async () => {
+    if (!fingerprint || !activeTemplate || templateDirty) return false;
+    if (!documentValuesRepository.isAvailable()) {
+      setValuesMessage('Il salvataggio dei dati è disponibile nell’app desktop.');
+      return false;
+    }
+    setValuesSaving(true);
+    setValuesMessage('Salvataggio dati documento...');
+    try {
+      const saved = await documentValuesRepository.save({
+        fingerprint,
+        templateId: activeTemplate.id,
+        templateRevision: activeTemplate.revision,
+        expectedRevision: valueSetRevision,
+        values: buildPersistedFieldValues(documentFields, fieldValues),
+      });
+      const state = applySavedDocumentValuesSnapshot({ currentValues: fieldValues, saved });
+      setValueSetRevision(state.valueSetRevision);
+      setFieldValues(state.values);
+      setValuesDirty(state.dirty);
+      setValuesMessage(state.message);
+      setValuesConflictOpen(false);
+      return true;
+    } catch (error) {
+      setValuesMessage(messageForDocumentValuesError(error, 'Impossibile salvare i dati documento.'));
+      if (error instanceof DocumentValuesError && error.code === 'revisionConflict') {
+        setValuesConflictOpen(true);
+        setPendingLayoutAction(null);
+      }
+      return false;
+    } finally {
+      setValuesSaving(false);
+    }
+  };
+
+  const currentDocumentValuesLoadKey = (): DocumentValuesLoadKey | null => buildDocumentValuesLoadKey({
+    documentInstanceId: documentInstanceRef.current,
+    fingerprint,
+    template: activeTemplate,
+    fields: documentFields,
+  });
+
+  const requestReloadDocumentValuesAfterConflict = () => {
+    setValuesReloadError('');
+    if (valuesDirty) {
+      setConfirmReloadValues(true);
+      return;
+    }
+    void reloadLatestDocumentValues();
+  };
+
+  const reloadLatestDocumentValues = async () => {
+    const loadKey = currentDocumentValuesLoadKey();
+    if (!loadKey || !activeTemplate) {
+      setValuesReloadError('Dati documento non ricaricabili in questo momento.');
+      return false;
+    }
+    setValuesReloading(true);
+    setValuesReloadError('');
+    try {
+      const valueSet = await documentValuesRepository.load({
+        fingerprint: loadKey.fingerprint,
+        templateId: loadKey.templateId,
+      });
+      const currentKey = currentDocumentValuesLoadKey();
+      if (!currentKey || !loadKeyMatches(loadKey, currentKey)) return false;
+      applyLoadedDocumentValues(valueSet, activeTemplate, documentFields);
+      setValuesConflictOpen(false);
+      setConfirmReloadValues(false);
+      setPendingLayoutAction(null);
+      return true;
+    } catch (error) {
+      setValuesReloadError(messageForDocumentValuesError(error, 'Impossibile ricaricare i dati documento.'));
+      return false;
+    } finally {
+      setValuesReloading(false);
+    }
+  };
+
   const reloadSharedTemplate = async () => {
     requestProtectedAction({ type: 'reload-template' });
   };
@@ -689,14 +961,20 @@ export function WorkspacePage({
   };
 
   const invalidateFieldValue = (fieldId: string) => {
-    setFieldValues((current) => invalidateFieldValues(current, [fieldId]));
+    setFieldValues((current) => {
+      if (current[fieldId]) setValuesDirty(true);
+      return invalidateFieldValues(current, [fieldId]);
+    });
   };
 
   const invalidateValuesForRegion = (regionId: string) => {
     const affected = documentFields
       .filter((field) => field.regionIds.includes(regionId))
       .map((field) => field.id);
-    setFieldValues((current) => invalidateFieldValues(current, affected));
+    setFieldValues((current) => {
+      if (affected.some((fieldId) => current[fieldId])) setValuesDirty(true);
+      return invalidateFieldValues(current, affected);
+    });
   };
 
   const requestExtractData = () => {
@@ -721,6 +999,7 @@ export function WorkspacePage({
     try {
       const results = await textExtractionService.extractPdfRegions(stagedDocument.token, payload);
       setFieldValues((current) => applyRegionExtractionResults(current, fieldIds, results));
+      setValuesDirty(true);
       const allEmpty = results.length > 0 && results.every((result) => result.status === 'empty' || !result.rawText.trim());
       setExtractionMessage(allEmpty ? 'Nessun testo leggibile nelle aree selezionate. Il documento potrebbe essere una scansione.' : '');
     } catch (error) {
@@ -741,6 +1020,14 @@ export function WorkspacePage({
     setHiddenTemplateRegionCount(0);
     setTemplateDialog(null);
     setTemplateName('');
+    setValueSetRevision(null);
+    setValuesDirty(false);
+    setValuesMessage('');
+    setValuesConflictOpen(false);
+    setConfirmReloadValues(false);
+    setValuesReloadError('');
+    setPendingFieldDeletion(null);
+    valuesLoadRef.current = { sequence: valuesLoadRef.current.sequence + 1, keyId: '' };
   };
 
   const openSaveDialog = () => {
@@ -812,6 +1099,46 @@ export function WorkspacePage({
     </div>
   );
 
+  const unsavedWorkspaceDialog =
+    pendingLayoutAction && templateDialog !== 'save' && (unsavedLayoutWarning || showUnsavedValuesDialog || showCombinedUnsavedDialog)
+      ? showCombinedUnsavedDialog
+        ? (
+          <UnsavedLayoutDialog
+            warning={{
+              title: 'Template e dati non salvati',
+              description: `Hai modificato il template "${activeTemplate?.name ?? 'corrente'}" e i dati del documento. Salva prima il template, poi riesegui l’estrazione prima di salvare i dati.`,
+              saveActionLabel: 'Salva il template e resta',
+            }}
+            onStay={stayOnWorkspace}
+            onDiscard={discardLayoutAndContinue}
+            onSaveAndContinue={saveTemplateAndStay}
+          />
+        )
+        : showUnsavedValuesDialog
+          ? (
+            <UnsavedLayoutDialog
+              warning={{
+                title: 'Dati non salvati',
+                description: 'Hai modificato i dati del documento. Se continui, queste modifiche andranno perse.',
+                saveActionLabel: 'Salva dati e continua',
+              }}
+              onStay={stayOnWorkspace}
+              onDiscard={discardLayoutAndContinue}
+              onSaveAndContinue={saveValuesAndContinue}
+            />
+          )
+          : unsavedLayoutWarning
+            ? (
+              <UnsavedLayoutDialog
+                warning={unsavedLayoutWarning}
+                onStay={stayOnWorkspace}
+                onDiscard={discardLayoutAndContinue}
+                onSaveAndContinue={saveLayoutAndContinue}
+              />
+            )
+            : null
+      : null;
+
   return (
     <>
       <AppHeader
@@ -854,11 +1181,23 @@ export function WorkspacePage({
           editorError={editorError}
           templateBar={templateBar}
           fieldValues={fieldValues}
-          extractionMessage={extractionMessage || extractionStatusMessage(document?.viewType ?? null, stageStatus)}
+          extractionMessage={
+            valuesMessage ||
+            (!documentValuesRepository.isAvailable() && activeTemplate
+              ? 'Il salvataggio dei dati è disponibile nell’app desktop.'
+              : extractionMessage || extractionStatusMessage(document?.viewType ?? null, stageStatus))
+          }
           extractionBusy={extractionBusy}
           canExtractData={canExtractData}
           onExtractData={requestExtractData}
-          onEditFieldValue={(fieldId, value) => setFieldValues((current) => editFieldValue(current, fieldId, value))}
+          valuesDirty={valuesDirty}
+          valuesSaving={valuesSaving}
+          canSaveData={canSaveData}
+          onSaveData={() => void saveDocumentValues()}
+          onEditFieldValue={(fieldId, value) => {
+            setFieldValues((current) => editFieldValue(current, fieldId, value));
+            setValuesDirty(true);
+          }}
           editor={editor}
           onToggleDrawing={() => {
             if (focusDraftEditor()) return;
@@ -881,8 +1220,8 @@ export function WorkspacePage({
             setDrawingMode(null);
             setEditor({ type: 'format', fieldId });
           }}
-          onDeleteRegion={deleteRegion}
-          onDeleteField={deleteField}
+          onDeleteRegion={requestDeleteRegion}
+          onDeleteField={requestDeleteField}
           onCancelEditor={cancelEditor}
           onSaveEditor={saveEditor}
           onSaveFormat={saveFormat}
@@ -894,14 +1233,29 @@ export function WorkspacePage({
           onDiscard={discardDraftAndContinue}
         />
       ) : null}
-      {pendingLayoutAction && unsavedLayoutWarning && templateDialog !== 'save' ? (
-        <UnsavedLayoutDialog
-          warning={unsavedLayoutWarning}
-          onStay={stayOnWorkspace}
-          onDiscard={discardLayoutAndContinue}
-          onSaveAndContinue={saveLayoutAndContinue}
+      {pendingFieldDeletion ? (
+        <DeleteFieldConfirmDialog
+          onCancel={cancelFieldDeletion}
+          onConfirm={confirmFieldDeletion}
         />
       ) : null}
+      {confirmReloadValues ? (
+        <ReloadValuesConfirmDialog
+          loading={valuesReloading}
+          error={valuesReloadError}
+          onCancel={() => setConfirmReloadValues(false)}
+          onReload={() => void reloadLatestDocumentValues()}
+        />
+      ) : valuesConflictOpen ? (
+        <ValuesConflictDialog
+          loading={valuesReloading}
+          error={valuesReloadError}
+          onStay={() => setValuesConflictOpen(false)}
+          onReload={requestReloadDocumentValuesAfterConflict}
+        />
+      ) : (
+        unsavedWorkspaceDialog
+      )}
       {templateDialog === 'save' ? (
         <TemplateSaveDialog
           name={templateName}
@@ -932,6 +1286,48 @@ export function WorkspacePage({
   );
 }
 
+function DeleteFieldConfirmDialog({
+  onCancel,
+  onConfirm,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="modal-backdrop"
+      aria-hidden={false}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section
+        className="confirm-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-field-title"
+        aria-describedby="delete-field-description"
+      >
+        <button className="modal-close" type="button" aria-label="Chiudi" onClick={onCancel}>
+          <X aria-hidden="true" size={18} />
+        </button>
+        <h2 id="delete-field-title">Eliminare il campo?</h2>
+        <p id="delete-field-description">
+          Il campo contiene un valore estratto o modificato. Eliminandolo verranno rimossi anche il riquadro e il valore associato.
+        </p>
+        <div className="confirm-dialog__actions">
+          <button className="button button--secondary" type="button" onClick={onCancel}>
+            Annulla
+          </button>
+          <button className="button button--danger" type="button" onClick={onConfirm}>
+            Elimina campo
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function RereadFieldsDialog({
   onCancel,
   onConfirm,
@@ -956,6 +1352,84 @@ function RereadFieldsDialog({
           </button>
           <button className="button button--danger" type="button" onClick={onConfirm}>
             Estrai di nuovo
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ValuesConflictDialog({
+  loading,
+  error,
+  onStay,
+  onReload,
+}: {
+  loading: boolean;
+  error: string;
+  onStay: () => void;
+  onReload: () => void;
+}) {
+  return (
+    <div
+      className="modal-backdrop"
+      aria-hidden={false}
+      onMouseDown={(event) => {
+        if (!loading && event.target === event.currentTarget) onStay();
+      }}
+    >
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="values-conflict-title">
+        <button className="modal-close" type="button" aria-label="Chiudi" onClick={onStay} disabled={loading}>
+          <X aria-hidden="true" size={18} />
+        </button>
+        <h2 id="values-conflict-title">Dati modificati</h2>
+        <p>I dati di questo documento sono stati modificati da un altro operatore. Ricarica i dati prima di salvare.</p>
+        {error ? <p className="field-editor-note">{error}</p> : null}
+        <div className="confirm-dialog__actions">
+          <button className="button button--secondary" type="button" onClick={onStay} disabled={loading}>
+            Resta qui
+          </button>
+          <button className="button button--primary" type="button" onClick={onReload} disabled={loading}>
+            {loading ? 'Ricaricamento...' : 'Ricarica dati'}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ReloadValuesConfirmDialog({
+  loading,
+  error,
+  onCancel,
+  onReload,
+}: {
+  loading: boolean;
+  error: string;
+  onCancel: () => void;
+  onReload: () => void;
+}) {
+  return (
+    <div
+      className="modal-backdrop"
+      aria-hidden={false}
+      onMouseDown={(event) => {
+        if (!loading && event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="reload-values-title">
+        <button className="modal-close" type="button" aria-label="Chiudi" onClick={onCancel} disabled={loading}>
+          <X aria-hidden="true" size={18} />
+        </button>
+        <h2 id="reload-values-title">Ricaricare i dati?</h2>
+        <p>Le modifiche locali saranno sostituite dai dati salvati più recentemente.</p>
+        {error ? <p className="field-editor-note">{error}</p> : null}
+        <div className="confirm-dialog__actions">
+          <button className="button button--secondary" type="button" onClick={onCancel} disabled={loading}>
+            Annulla
+          </button>
+          <button className="button button--danger" type="button" onClick={onReload} disabled={loading}>
+            {loading ? 'Ricaricamento...' : 'Ricarica dati'}
           </button>
         </div>
       </section>
@@ -1093,8 +1567,7 @@ function extractionStatusMessage(viewType: LocalDocument['viewType'] | null, sta
 
 function isEditingText(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
-  const tagName = target.tagName.toLowerCase();
-  return tagName === 'input' || tagName === 'textarea' || target.isContentEditable;
+  return isTextEditingElement(target);
 }
 
 function messageForCatalogError(error: unknown, fallback: string) {
@@ -1104,6 +1577,11 @@ function messageForCatalogError(error: unknown, fallback: string) {
 
 function messageForTemplateError(error: unknown, fallback: string) {
   if (error instanceof DocumentTemplateError) return error.message;
+  return fallback;
+}
+
+function messageForDocumentValuesError(error: unknown, fallback: string) {
+  if (error instanceof DocumentValuesError) return error.message;
   return fallback;
 }
 

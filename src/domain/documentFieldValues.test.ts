@@ -3,9 +3,12 @@ import type { DocumentRegion } from '../components/document/documentGeometry';
 import type { DocumentField, FieldDefinition } from './fieldTypes';
 import {
   applyRegionExtractionResults,
+  buildPersistedFieldValues,
   editFieldValue,
   hasManualCorrections,
   invalidateFieldValues,
+  loadPersistedFieldValues,
+  markPersistedFieldValuesSaved,
   markFieldsExtractionError,
   markFieldsReading,
   readableSingleFields,
@@ -18,7 +21,7 @@ const catalog: FieldDefinition[] = [
 ];
 
 const fields: DocumentField[] = [
-  { id: 'field-single', definitionId: 'single', regionIds: ['region-1'] },
+  { id: 'field-single', templateFieldId: 'template-field-single', definitionId: 'single', regionIds: ['region-1'] },
   { id: 'field-list', definitionId: 'list', regionIds: ['region-2'] },
   { id: 'field-table', definitionId: 'table', regionIds: ['region-3'] },
 ];
@@ -106,5 +109,36 @@ describe('documentFieldValues', () => {
       editedValue: 'corretto',
       status: 'reading',
     });
+  });
+
+  it('carica valori persistiti usando templateFieldId stabile', () => {
+    const values = loadPersistedFieldValues(fields, [{
+      templateFieldId: 'template-field-single',
+      fieldDefinitionId: 'single',
+      rawValue: 'S00001',
+      editedValue: 'S00002',
+      source: 'manual',
+      status: 'ready',
+    }]);
+    expect(values['field-single']).toMatchObject({
+      rawValue: 'S00001',
+      editedValue: 'S00002',
+      source: 'manual',
+      saved: true,
+    });
+  });
+
+  it('salva snapshot usando templateFieldId e marca i valori salvati', () => {
+    const edited = editFieldValue({}, 'field-single', 'S00002');
+    const snapshot = buildPersistedFieldValues(fields, edited);
+    expect(snapshot).toEqual([{
+      templateFieldId: 'template-field-single',
+      fieldDefinitionId: 'single',
+      rawValue: '',
+      editedValue: 'S00002',
+      source: 'manual',
+      status: 'ready',
+    }]);
+    expect(markPersistedFieldValuesSaved(edited)['field-single'].saved).toBe(true);
   });
 });

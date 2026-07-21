@@ -18,6 +18,10 @@ import {
   createDocumentTextExtractionService,
   type DocumentTextExtractionService,
 } from '../domain/documentTextExtractionService';
+import {
+  createDocumentValuesRepository,
+  type DocumentValuesRepository,
+} from '../domain/documentValuesRepository';
 import type { DocumentTemplateSummary } from '../domain/documentTemplates';
 import { isTauriRuntime } from '../services/tauriRuntime';
 
@@ -37,6 +41,7 @@ export function App() {
   const catalogRepository = useMemo<FieldCatalogRepository>(() => createFieldCatalogRepository(), []);
   const templateRepository = useMemo<DocumentTemplateRepository>(() => createDocumentTemplateRepository(), []);
   const textExtractionService = useMemo<DocumentTextExtractionService>(() => createDocumentTextExtractionService(), []);
+  const documentValuesRepository = useMemo<DocumentValuesRepository>(() => createDocumentValuesRepository(), []);
 
   const refreshCatalog = async (mode: 'initial' | 'refresh' = 'refresh') => {
     const desktop = isTauriRuntime();
@@ -122,6 +127,7 @@ export function App() {
           onRefreshCatalog={() => refreshCatalog('refresh')}
           templateRepository={templateRepository}
           textExtractionService={textExtractionService}
+          documentValuesRepository={documentValuesRepository}
           templateSummaries={templateSummaries}
           templateStatus={templateStatus}
           onRefreshTemplates={refreshTemplates}
