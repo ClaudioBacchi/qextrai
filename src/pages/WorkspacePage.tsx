@@ -20,7 +20,23 @@ import {
   DocumentTemplateError,
   type DocumentTemplateRepository,
 } from '../domain/documentTemplateRepository';
+import type {
+  DocumentTextExtractionService,
+  ExtractPdfRegionRequest,
+  StagedPdfDocument,
+} from '../domain/documentTextExtractionService';
 import { getUnsavedLayoutWarning } from '../domain/unsavedLayoutGuard';
+import {
+  applyRegionExtractionResults,
+  editFieldValue,
+  hasManualCorrections,
+  invalidateFieldValues,
+  markFieldsExtractionError,
+  markFieldsReading,
+  readableSingleFields,
+  rectEquals,
+  type DocumentFieldValues,
+} from '../domain/documentFieldValues';
 import {
   commitDraftRegion,
   discardDraftRegion,
@@ -55,6 +71,7 @@ type WorkspacePageProps = {
   catalogRepository: FieldCatalogRepository;
   onRefreshCatalog: () => Promise<void>;
   templateRepository: DocumentTemplateRepository;
+  textExtractionService: DocumentTextExtractionService;
   templateSummaries: DocumentTemplateSummary[];
   templateStatus: FieldCatalogStatus;
   onRefreshTemplates: () => Promise<void>;
@@ -68,6 +85,7 @@ type WorkspacePageProps = {
 
 type DrawingMode = { type: 'new' } | { type: 'append'; fieldId: string } | null;
 type PendingNavigation = 'preferences' | 'back' | 'new-document';
+type ExtractionStageStatus = 'idle' | 'staging' | 'ready' | 'unavailable' | 'error';
 type ProtectedWorkspaceAction =
   | { type: 'navigation'; target: PendingNavigation }
   | { type: 'replace-document'; file: File }
@@ -88,6 +106,7 @@ export function WorkspacePage({
   catalogRepository,
   onRefreshCatalog,
   templateRepository,
+  textExtractionService,
   templateSummaries,
   templateStatus,
   onRefreshTemplates,
@@ -114,6 +133,14 @@ export function WorkspacePage({
   const [hiddenTemplateRegionCount, setHiddenTemplateRegionCount] = useState(0);
   const [templateDialog, setTemplateDialog] = useState<'save' | 'apply' | null>(null);
   const [templateName, setTemplateName] = useState('');
+  const [stagedDocument, setStagedDocument] = useState<StagedPdfDocument | null>(null);
+  const [stageStatus, setStageStatus] = useState<ExtractionStageStatus>('idle');
+  const [extractionMessage, setExtractionMessage] = useState('');
+  const [fieldValues, setFieldValues] = useState<DocumentFieldValues>({});
+  const [extractionBusy, setExtractionBusy] = useState(false);
+  const [confirmReread, setConfirmReread] = useState(false);
+  const stageRequestRef = useRef(0);
+  const stagedTokenRef = useRef<string | null>(null);
   const canAddRegion = document?.viewType === 'pdf' || document?.viewType === 'image';
   const visibleRegions = useMemo(() => displayRegions(regions, draftRegion), [regions, draftRegion]);
   const hasDraft = hasUnsavedDraft(draftRegion, editor);
@@ -124,6 +151,9 @@ export function WorkspacePage({
     fieldCount: documentFields.length,
   });
   const templateStoreReady = templateStatus === 'ready' || templateStatus === 'temporary';
+  const readableFields = readableSingleFields(documentFields, catalog, regions);
+  const canExtractData =
+    document?.viewType === 'pdf' && stageStatus === 'ready' && Boolean(stagedDocument) && readableFields.length > 0;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -131,6 +161,11 @@ export function WorkspacePage({
         if (pendingLayoutAction) {
           event.preventDefault();
           stayOnWorkspace();
+          return;
+        }
+        if (confirmReread) {
+          event.preventDefault();
+          setConfirmReread(false);
           return;
         }
         if (templateDialog) {
@@ -174,11 +209,27 @@ export function WorkspacePage({
     draftRegion,
     templateDialog,
     pendingLayoutAction,
+    confirmReread,
   ]);
 
   useEffect(() => {
+    setFieldValues({});
+    setExtractionBusy(false);
+    setConfirmReread(false);
+    setExtractionMessage('');
+  }, [document]);
+
+  useEffect(() => {
+    const requestId = stageRequestRef.current + 1;
+    stageRequestRef.current = requestId;
+    const previousToken = stagedTokenRef.current;
+    if (previousToken) void textExtractionService.releaseStagedDocument(previousToken);
+    stagedTokenRef.current = null;
+    setStagedDocument(null);
+
     if (!document) {
       resetTemplateState();
+      setStageStatus('idle');
       return;
     }
 
@@ -190,11 +241,45 @@ export function WorkspacePage({
     setHiddenTemplateRegionCount(0);
     setTemplateMessage('Nessun template associato.');
 
+    if (document.viewType === 'pdf') {
+      setStageStatus('staging');
+      textExtractionService
+        .stagePdfDocument(document.file)
+        .then((staged) => {
+          if (cancelled || stageRequestRef.current !== requestId) {
+            void textExtractionService.releaseStagedDocument(staged.token);
+            return;
+          }
+          stagedTokenRef.current = staged.token;
+          setStagedDocument(staged);
+          setFingerprint(staged.fingerprint);
+          setStageStatus('ready');
+          setFingerprintStatus('Ricerca template associato...');
+          if (pageCount && staged.pageCount !== pageCount) {
+            setExtractionMessage('Conteggio pagine non allineato tra viewer e motore di lettura.');
+          }
+        })
+        .catch((error) => {
+          if (cancelled || stageRequestRef.current !== requestId) return;
+          setStageStatus(error instanceof Error && error.message.includes('desktop') ? 'unavailable' : 'error');
+          setFingerprintStatus('');
+          setExtractionMessage(messageForExtractionError(error));
+        });
+    } else if (document.viewType === 'image') {
+      setStageStatus('unavailable');
+      setExtractionMessage('Per leggere le immagini sarà necessario il riconoscimento OCR, non ancora attivo.');
+    } else {
+      setStageStatus('unavailable');
+      setExtractionMessage('');
+    }
+
     calculateDocumentFingerprint(document.file)
       .then((value) => {
         if (cancelled) return;
-        setFingerprint(value);
-        setFingerprintStatus('Ricerca template associato...');
+        if (stageRequestRef.current === requestId && document.viewType !== 'pdf') {
+          setFingerprint(value);
+          setFingerprintStatus('Ricerca template associato...');
+        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -203,8 +288,9 @@ export function WorkspacePage({
 
     return () => {
       cancelled = true;
+      if (previousToken) void textExtractionService.releaseStagedDocument(previousToken);
     };
-  }, [document]);
+  }, [document, textExtractionService]);
 
   useEffect(() => {
     if (!document || !fingerprint || !pageCount) return;
@@ -356,6 +442,7 @@ export function WorkspacePage({
     if (drawingMode?.type === 'append') {
       onRegionsChange([...regions, region]);
       onDocumentFieldsChange(addRegionToField(documentFields, drawingMode.fieldId, id));
+      invalidateFieldValue(drawingMode.fieldId);
       onSelectRegion(id);
       setDrawingMode(null);
       markTemplateDirty();
@@ -374,7 +461,9 @@ export function WorkspacePage({
       setDraftRegion({ ...draftRegion, rect });
       return;
     }
+    const previous = regions.find((region) => region.id === id);
     onRegionsChange(regions.map((region) => (region.id === id ? { ...region, rect } : region)));
+    if (!previous || !rectEquals(previous.rect, rect)) invalidateValuesForRegion(id);
     markTemplateDirty();
   };
 
@@ -418,6 +507,7 @@ export function WorkspacePage({
 
     if (editor?.type === 'change') {
       onDocumentFieldsChange(changeFieldDefinition(documentFields, editor.fieldId, definition.id));
+      invalidateFieldValue(editor.fieldId);
       markTemplateDirty();
     }
 
@@ -465,6 +555,7 @@ export function WorkspacePage({
     }
 
     onRegionsChange(regions.filter((region) => region.id !== regionId));
+    invalidateValuesForRegion(regionId);
     onDocumentFieldsChange(removeRegionFromFields(documentFields, regionId));
     if (selectedRegionId === regionId) onSelectRegion(null);
     if (editor?.type === 'region' && editor.regionId === regionId) setEditor(null);
@@ -475,6 +566,7 @@ export function WorkspacePage({
     const field = documentFields.find((item) => item.id === fieldId);
     if (!field) return;
     onRegionsChange(regions.filter((region) => !field.regionIds.includes(region.id)));
+    invalidateFieldValue(fieldId);
     onDocumentFieldsChange(removeField(documentFields, fieldId));
     if (selectedRegionId && field.regionIds.includes(selectedRegionId)) onSelectRegion(null);
     if (editor?.type === 'change' && editor.fieldId === fieldId) setEditor(null);
@@ -490,6 +582,7 @@ export function WorkspacePage({
     setTemplateDirty(false);
     setHiddenTemplateRegionCount(layout.hiddenRegionCount);
     setFingerprintStatus('');
+    setFieldValues({});
   };
 
   const saveAsTemplate = async () => {
@@ -595,6 +688,49 @@ export function WorkspacePage({
     setTemplateMessage('Modifiche al template non salvate.');
   };
 
+  const invalidateFieldValue = (fieldId: string) => {
+    setFieldValues((current) => invalidateFieldValues(current, [fieldId]));
+  };
+
+  const invalidateValuesForRegion = (regionId: string) => {
+    const affected = documentFields
+      .filter((field) => field.regionIds.includes(regionId))
+      .map((field) => field.id);
+    setFieldValues((current) => invalidateFieldValues(current, affected));
+  };
+
+  const requestExtractData = () => {
+    if (!canExtractData || extractionBusy) return;
+    if (hasManualCorrections(fieldValues)) {
+      setConfirmReread(true);
+      return;
+    }
+    void extractData();
+  };
+
+  const extractData = async () => {
+    if (!stagedDocument) return;
+    const fieldsToRead = readableSingleFields(documentFields, catalog, regions);
+    if (fieldsToRead.length === 0) return;
+    const fieldIds = fieldsToRead.map((field) => field.id);
+    const payload = buildExtractionPayload(fieldsToRead, catalog, regions);
+    setConfirmReread(false);
+    setExtractionBusy(true);
+    setExtractionMessage('Lettura campi...');
+    setFieldValues((current) => markFieldsReading(current, fieldIds));
+    try {
+      const results = await textExtractionService.extractPdfRegions(stagedDocument.token, payload);
+      setFieldValues((current) => applyRegionExtractionResults(current, fieldIds, results));
+      const allEmpty = results.length > 0 && results.every((result) => result.status === 'empty' || !result.rawText.trim());
+      setExtractionMessage(allEmpty ? 'Nessun testo leggibile nelle aree selezionate. Il documento potrebbe essere una scansione.' : '');
+    } catch (error) {
+      setFieldValues((current) => markFieldsExtractionError(current, fieldIds));
+      setExtractionMessage(messageForExtractionError(error));
+    } finally {
+      setExtractionBusy(false);
+    }
+  };
+
   const resetTemplateState = () => {
     setPageCount(null);
     setFingerprint(null);
@@ -618,6 +754,7 @@ export function WorkspacePage({
     setEditor(null);
     setDraftRegion(null);
     resetTemplateState();
+    setFieldValues({});
   };
 
   const drawingMessage =
@@ -716,6 +853,12 @@ export function WorkspacePage({
           catalogMessage={catalogMessage}
           editorError={editorError}
           templateBar={templateBar}
+          fieldValues={fieldValues}
+          extractionMessage={extractionMessage || extractionStatusMessage(document?.viewType ?? null, stageStatus)}
+          extractionBusy={extractionBusy}
+          canExtractData={canExtractData}
+          onExtractData={requestExtractData}
+          onEditFieldValue={(fieldId, value) => setFieldValues((current) => editFieldValue(current, fieldId, value))}
           editor={editor}
           onToggleDrawing={() => {
             if (focusDraftEditor()) return;
@@ -779,7 +922,44 @@ export function WorkspacePage({
           onApply={applyTemplateManually}
         />
       ) : null}
+      {confirmReread ? (
+        <RereadFieldsDialog
+          onCancel={() => setConfirmReread(false)}
+          onConfirm={() => void extractData()}
+        />
+      ) : null}
     </>
+  );
+}
+
+function RereadFieldsDialog({
+  onCancel,
+  onConfirm,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="modal-backdrop"
+      aria-hidden={false}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="reread-fields-title">
+        <h2 id="reread-fields-title">Rileggere i campi?</h2>
+        <p>I valori corretti manualmente saranno sostituiti dalla nuova lettura del documento.</p>
+        <div className="confirm-dialog__actions">
+          <button className="button button--secondary" type="button" onClick={onCancel}>
+            Annulla
+          </button>
+          <button className="button button--danger" type="button" onClick={onConfirm}>
+            Estrai di nuovo
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -881,6 +1061,36 @@ function labelForField(fieldId: string, fields: DocumentField[], catalog: FieldD
   return definition?.name ?? 'campo';
 }
 
+function buildExtractionPayload(
+  fields: DocumentField[],
+  catalog: FieldDefinition[],
+  regions: DocumentRegion[],
+): ExtractPdfRegionRequest[] {
+  return fields.flatMap((field) => {
+    const definition = catalog.find((item) => item.id === field.definitionId);
+    if (!definition || definition.kind !== 'single') return [];
+    return field.regionIds.flatMap((regionId) => {
+      const region = regions.find((item) => item.id === regionId);
+      if (!region) return [];
+      return [{
+        regionId: region.id,
+        documentFieldId: field.id,
+        fieldDefinitionId: definition.id,
+        pageNumber: region.pageNumber,
+        rect: region.rect,
+      }];
+    });
+  });
+}
+
+function extractionStatusMessage(viewType: LocalDocument['viewType'] | null, status: ExtractionStageStatus) {
+  if (viewType === 'image') return 'Per leggere le immagini sarà necessario il riconoscimento OCR, non ancora attivo.';
+  if (status === 'unavailable') return 'L’estrazione dei dati è disponibile nell’app desktop.';
+  if (status === 'staging') return 'Preparazione lettura PDF...';
+  if (status === 'error') return 'Lettura PDF non disponibile per questo documento.';
+  return '';
+}
+
 function isEditingText(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   const tagName = target.tagName.toLowerCase();
@@ -895,4 +1105,9 @@ function messageForCatalogError(error: unknown, fallback: string) {
 function messageForTemplateError(error: unknown, fallback: string) {
   if (error instanceof DocumentTemplateError) return error.message;
   return fallback;
+}
+
+function messageForExtractionError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return 'Errore di lettura del documento.';
 }

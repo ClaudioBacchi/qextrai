@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Crosshair, FilePlus2, Search, ScanSearch } from 'lucide-react';
+import { Crosshair, FilePlus2, Search, ScanSearch, TextSearch } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { DocumentRegion } from '../document/documentGeometry';
 import type { DocumentField, FieldDefinition } from '../../domain/fieldTypes';
@@ -15,6 +15,7 @@ import { DocumentFieldCard } from './DocumentFieldCard';
 import { FieldDefinitionEditor, type FieldEditorSave } from './FieldDefinitionEditor';
 import { FieldFormatEditor, type FieldFormatSave } from './FieldFormatEditor';
 import type { FieldCatalogStatus } from '../../domain/fieldCatalogRepository';
+import type { DocumentFieldValues } from '../../domain/documentFieldValues';
 
 type EditorState =
   | { type: 'region'; regionId: string }
@@ -34,6 +35,12 @@ type DocumentFieldsPanelProps = {
   catalogMessage: string;
   editorError: string;
   templateBar: ReactNode;
+  fieldValues: DocumentFieldValues;
+  extractionMessage: string;
+  extractionBusy: boolean;
+  canExtractData: boolean;
+  onExtractData: () => void;
+  onEditFieldValue: (fieldId: string, value: string) => void;
   editor: EditorState;
   onToggleDrawing: () => void;
   onSelectRegion: (id: string) => void;
@@ -67,6 +74,12 @@ export function DocumentFieldsPanel({
   catalogMessage,
   editorError,
   templateBar,
+  fieldValues,
+  extractionMessage,
+  extractionBusy,
+  canExtractData,
+  onExtractData,
+  onEditFieldValue,
   editor,
   onToggleDrawing,
   onSelectRegion,
@@ -141,6 +154,15 @@ export function DocumentFieldsPanel({
               Suggerisci campi
             </button>
             <button
+              className="button button--secondary button--compact"
+              type="button"
+              disabled={!canExtractData || extractionBusy}
+              onClick={onExtractData}
+            >
+              <TextSearch aria-hidden="true" size={16} />
+              {extractionBusy ? 'Lettura campi...' : 'Estrai dati'}
+            </button>
+            <button
               className={`button button--secondary${drawingMode ? ' button--active' : ''}`}
               type="button"
               disabled={!canAddRegion || isDefiningDraft || !catalogAllowsEditing}
@@ -196,6 +218,11 @@ export function DocumentFieldsPanel({
               : catalogMessage || 'Catalogo non disponibile.'}
           </div>
         ) : null}
+        {extractionMessage ? (
+          <div className="field-editor-note" role="status">
+            {extractionMessage}
+          </div>
+        ) : null}
         {editor && editor.type !== 'format' ? (
           <FieldDefinitionEditor
             catalog={catalog}
@@ -236,6 +263,7 @@ export function DocumentFieldsPanel({
                 key={field.id}
                 field={field}
                 definition={definition}
+                value={fieldValues[field.id]}
                 regions={regions}
                 selectedRegionId={selectedRegionId}
                 expanded={expandedFieldId === field.id}
@@ -247,6 +275,7 @@ export function DocumentFieldsPanel({
                   setExpandedFieldId(fieldId);
                   onEditFormat(fieldId);
                 }}
+                onEditValue={onEditFieldValue}
                 onDeleteRegion={onDeleteRegion}
                 onDeleteField={onDeleteField}
               />

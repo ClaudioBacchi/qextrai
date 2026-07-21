@@ -7,11 +7,13 @@ import {
   type FieldDefinition,
 } from '../../domain/fieldTypes';
 import { formatPages } from '../../domain/documentFieldList';
+import type { DocumentFieldValue } from '../../domain/documentFieldValues';
 import type { DocumentRegion } from '../document/documentGeometry';
 
 type DocumentFieldCardProps = {
   field: DocumentField;
   definition: FieldDefinition;
+  value: DocumentFieldValue | undefined;
   regions: DocumentRegion[];
   selectedRegionId: string | null;
   expanded: boolean;
@@ -20,6 +22,7 @@ type DocumentFieldCardProps = {
   onAddArea: (fieldId: string) => void;
   onChangeField: (fieldId: string) => void;
   onEditFormat: (fieldId: string) => void;
+  onEditValue: (fieldId: string, value: string) => void;
   onDeleteRegion: (regionId: string) => void;
   onDeleteField: (fieldId: string) => void;
 };
@@ -27,6 +30,7 @@ type DocumentFieldCardProps = {
 export function DocumentFieldCard({
   field,
   definition,
+  value,
   regions,
   selectedRegionId,
   expanded,
@@ -35,11 +39,14 @@ export function DocumentFieldCard({
   onAddArea,
   onChangeField,
   onEditFormat,
+  onEditValue,
   onDeleteRegion,
   onDeleteField,
 }: DocumentFieldCardProps) {
   const panelId = `field-row-panel-${field.id}`;
   const areaText = regions.length === 1 ? '1 area' : `${regions.length} aree`;
+  const valueStatus = valueStatusLabel(value);
+  const valueText = value?.editedValue || valueStatus;
   const selectedRegionBelongsToField = Boolean(selectedRegionId && field.regionIds.includes(selectedRegionId));
   const sortedRegions = [...regions].sort(
     (first, second) =>
@@ -59,7 +66,7 @@ export function DocumentFieldCard({
       >
         <span className="field-status-dot" aria-label="Da acquisire" />
         <span className="field-row-name" title={definition.name}>{definition.name}</span>
-        <span className="field-row-value">Valore non ancora acquisito</span>
+        <span className="field-row-value" title={valueText}>{valueText}</span>
         <span className="field-row-meta">{formatFieldDefinitionMeta(definition)}</span>
         <span className="field-row-pages">{formatPages(regions)}</span>
         <span className="field-row-areas">{areaText}</span>
@@ -82,9 +89,23 @@ export function DocumentFieldCard({
             </div>
             <div>
               <span>Stato</span>
-              <strong>Valore non ancora acquisito</strong>
+              <strong>{valueStatus}</strong>
             </div>
           </div>
+          {definition.kind === 'single' ? (
+            <label className="field-value-editor">
+              <span>Valore</span>
+              <input
+                value={value?.editedValue ?? ''}
+                onChange={(event) => onEditValue(field.id, event.target.value)}
+                placeholder={value?.status === 'empty' ? 'Nessun testo trovato' : 'Valore da leggere'}
+              />
+            </label>
+          ) : (
+            <p className="field-editor-note field-editor-note--compact">
+              Estrazione non ancora disponibile per questo tipo di campo.
+            </p>
+          )}
           <div className="field-area-list field-area-list--compact" aria-label={`Aree di ${definition.name}`}>
             {sortedRegions.map((region, index) => (
               <button
@@ -123,4 +144,12 @@ export function DocumentFieldCard({
       ) : null}
     </article>
   );
+}
+
+function valueStatusLabel(value: DocumentFieldValue | undefined) {
+  if (!value || value.status === 'idle') return 'Da leggere';
+  if (value.status === 'reading') return 'Lettura campi...';
+  if (value.status === 'empty') return 'Nessun testo trovato';
+  if (value.status === 'error') return 'Errore di lettura';
+  return value.source === 'manual' ? 'Corretto manualmente' : 'Letto dal PDF';
 }

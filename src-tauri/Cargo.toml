@@ -15,8 +15,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 base64 = "0.22"
+pdf_oxide = { version = "0.3", features = ["rendering"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = [
   "runtime-tokio",
   "tls-native-tls",
@@ -25,6 +27,8 @@ sqlx = { version = "0.8", default-features = false, features = [
   "macros",
 ] }
 tokio = { version = "1", features = ["time"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Security_Cryptography",

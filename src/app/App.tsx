@@ -14,6 +14,10 @@ import {
   createDocumentTemplateRepository,
   type DocumentTemplateRepository,
 } from '../domain/documentTemplateRepository';
+import {
+  createDocumentTextExtractionService,
+  type DocumentTextExtractionService,
+} from '../domain/documentTextExtractionService';
 import type { DocumentTemplateSummary } from '../domain/documentTemplates';
 import { isTauriRuntime } from '../services/tauriRuntime';
 
@@ -32,6 +36,7 @@ export function App() {
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const catalogRepository = useMemo<FieldCatalogRepository>(() => createFieldCatalogRepository(), []);
   const templateRepository = useMemo<DocumentTemplateRepository>(() => createDocumentTemplateRepository(), []);
+  const textExtractionService = useMemo<DocumentTextExtractionService>(() => createDocumentTextExtractionService(), []);
 
   const refreshCatalog = async (mode: 'initial' | 'refresh' = 'refresh') => {
     const desktop = isTauriRuntime();
@@ -116,6 +121,7 @@ export function App() {
           catalogRepository={catalogRepository}
           onRefreshCatalog={() => refreshCatalog('refresh')}
           templateRepository={templateRepository}
+          textExtractionService={textExtractionService}
           templateSummaries={templateSummaries}
           templateStatus={templateStatus}
           onRefreshTemplates={refreshTemplates}

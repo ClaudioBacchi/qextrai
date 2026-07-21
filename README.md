@@ -26,6 +26,14 @@ In modalità browser il catalogo resta temporaneo in memoria. Se il server Postg
 
 In questa fase non vengono persistiti i documenti originali, i valori estratti, OCR, estrazioni o esportazioni. Sono persistiti solo catalogo campi condiviso, template e associazioni documento-template.
 
+## Estrazione dati locale
+
+L'app desktop puo leggere testo dai PDF nativi usando esclusivamente le aree definite dall'operatore nel template o nel layout corrente. Il frontend trasferisce il PDF al backend Tauri come body binario raw, senza Base64 o array JSON; il backend calcola l'impronta SHA-256, crea un file temporaneo di sessione e restituisce solo token opaco, fingerprint e numero pagine.
+
+Il comando `Estrai dati` supporta al momento solo campi `single`. Per ogni area inviata, il backend apre il PDF locale e legge il testo circoscritto al rettangolo ricevuto; non legge l'intera pagina per cercare valori e non usa PDF.js per l'estrazione testuale. I valori vengono mostrati nel pannello campi, sono modificabili manualmente e restano solo nello stato del documento corrente.
+
+Non sono ancora disponibili OCR, immagini o PDF scannerizzati, LLM/API esterne, campi elenco, tabelle, persistenza dei valori ed esportazione. In browser il viewer continua a funzionare, ma l'estrazione mostra che la funzione e disponibile solo nell'app desktop. I PDF temporanei vengono eliminati quando il documento viene sostituito, quando il token viene rilasciato, alla chiusura dell'app o in caso di errore di staging.
+
 ## Comandi
 
 ```bash
@@ -38,4 +46,4 @@ npm.cmd run desktop:dev
 npm.cmd run desktop:build
 ```
 
-L'applicazione non include backend, OCR, lettura PDF reale o chiamate esterne.
+L'applicazione non esegue OCR, LLM o chiamate internet durante l'estrazione.
